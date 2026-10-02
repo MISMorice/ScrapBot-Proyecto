@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import hist_chip, disc_chip %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<h1>{{ p.name }}</h1>
+<p class="lead"><a href="{{ url_for('web.products') }}">Productos</a> · {{ p.source_name }}</p>
+<div class="panel"><dl class="kv">
+  <dt>SKU</dt><dd class="mono">{{ p.sku or '—' }}</dd>
+  <dt>EAN</dt><dd class="mono">{{ p.ean or '—' }}</dd>
+  <dt>Precio neto</dt><dd>{{ p.net_price|clp }}</dd>
+  <dt>IVA</dt><dd>{{ p.vat_amount|clp }}</dd>
+  <dt>Precio final publicado</dt><dd><b>{{ p.final_price|clp }}</b>{% if p.price_frozen %} <span class="chip warn">Hay una variación en revisión</span>{% endif %}</dd>
+  <dt>Stock</dt><dd>{% if p.available == 0 %}Agotado{% elif p.stock is not none %}{{ p.stock }} unidades{% elif p.available == 1 %}Disponible{% else %}Sin información{% endif %}</dd>
+  <dt>Última captura</dt><dd>{{ p.last_seen_at|dt }}</dd>
+  <dt>Hash del contenido</dt><dd class="mono">{{ p.content_hash or '—' }}</dd>
+</dl></div>
+
+<h2>Historial de precios</h2>
+<div class="table-wrap">
+{% if history %}
+<table>
+  <thead><tr><th>Captura</th><th>Ejecución</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Final</th><th class="num">Stock</th><th>Estado</th></tr></thead>
+  <tbody>{% for h in history %}
+    <tr><td>{{ h.captured_at|dt }}</td><td><a href="{{ url_for('web.run_detail', run_id=h.run_id) }}">#{{ h.run_id }}</a></td>
+      <td class="num">{{ h.net_price|clp }}</td><td class="num">{{ h.vat_amount|clp }} <span class="muted">({{ '%g'|format(h.vat_rate) }}%)</span></td>
+      <td class="num">{{ h.final_price|clp }}</td><td class="num">{{ h.stock if h.stock is not none else '—' }}</td><td>{{ hist_chip(h.status) }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Sin historial.</div>{% endif %}
+</div>
+
+{% if discs %}
+<h2>Variaciones anómalas</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Detectada</th><th class="num">Publicado</th><th class="num">Capturado</th><th class="num">Variación</th><th>Estado</th><th>Resuelta por</th><th>Motivo</th></tr></thead>
+  <tbody>{% for d in discs %}
+    <tr><td>{{ d.created_at|dt }}</td><td class="num">{{ d.old_final_price|clp }}</td><td class="num">{{ d.new_final_price|clp }}</td>
+      <td class="num">{{ d.variation_pct }} %</td><td>{{ disc_chip(d.status) }}</td><td>{{ d.resolved_by or '—' }}</td><td>{{ d.justification or '—' }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

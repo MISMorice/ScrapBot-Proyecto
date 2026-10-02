@@ -1,0 +1,29 @@
+{% from '_macros.html' import csrf %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingresar · ScrapBot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>ScrapBot</h1>
+    <p class="muted">Ingrese con su cuenta de la organización.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}<div class="flash {{ cat }}" role="alert">{{ msg }}</div>{% endfor %}
+    {% endwith %}
+    <form method="post" class="stack">
+      {{ csrf() }}
+      <label for="username">Usuario</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">Contraseña</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <p><button class="btn" type="submit">Ingresar</button></p>
+    </form>
+  </div>
+</div>
+</body>
+</html>

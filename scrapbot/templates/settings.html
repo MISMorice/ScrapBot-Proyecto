@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, err %}
+{% block title %}Parámetros{% endblock %}
+{% block content %}
+<h1>Parámetros</h1>
+<p class="lead">Reglas de negocio aplicadas en cada ejecución. Los cambios rigen desde la próxima captura.</p>
+<form method="post" class="stack panel">
+  {{ csrf() }}
+  <div class="grid2">
+    <div><label for="vat_rate">IVA (%)</label><input type="number" step="0.1" id="vat_rate" name="vat_rate" value="{{ values.vat_rate }}">{{ err(errors, 'vat_rate') }}</div>
+    <div><label for="variation_threshold">Umbral de variación de precio (%) <span class="hint">Una variación mayor queda retenida para revisión.</span></label>
+      <input type="number" step="0.5" id="variation_threshold" name="variation_threshold" value="{{ values.variation_threshold }}">{{ err(errors, 'variation_threshold') }}</div>
+  </div>
+  <label for="schedule_times">Horarios de ejecución automática <span class="hint">Formato HH:MM separados por coma (hora de Chile). Por defecto, cuatro veces al día.</span></label>
+  <input type="text" id="schedule_times" name="schedule_times" value="{{ values.schedule_times }}">{{ err(errors, 'schedule_times') }}
+  <label class="check"><input type="checkbox" name="scheduler_enabled" {% if values.scheduler_enabled == '1' %}checked{% endif %}> Ejecuciones automáticas activadas</label>
+  <p><button class="btn" type="submit">Guardar parámetros</button></p>
+</form>
+{% endblock %}

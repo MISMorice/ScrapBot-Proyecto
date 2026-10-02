@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import pager %}
+{% block title %}Auditoría{% endblock %}
+{% block content %}
+<h1>Auditoría</h1>
+<p class="lead">Traza unificada: ejecuciones, cambios de configuración, decisiones sobre precios y accesos.</p>
+<form class="filters" method="get">
+  <div><label for="user">Usuario</label><input type="text" id="user" name="user" value="{{ user }}"></div>
+  <div><label for="action">Acción contiene</label><input type="text" id="action" name="action" value="{{ action }}" placeholder="discrepancy, source, run…"></div>
+  <button class="btn" type="submit">Filtrar</button>
+</form>
+<div class="table-wrap">
+{% if rows %}
+<table>
+  <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Entidad</th><th>Detalle</th></tr></thead>
+  <tbody>{% for a in rows %}
+    <tr><td>{{ a.created_at|dt }}</td><td>{{ a.username or '—' }}</td><td class="mono">{{ a.action }}</td>
+      <td>{{ a.entity or '' }}{% if a.entity_id %} #{{ a.entity_id }}{% endif %}</td><td>{{ a.detail or '' }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">No hay registros con esos filtros.</div>{% endif %}
+</div>
+{{ pager(pg) }}
+{% endblock %}

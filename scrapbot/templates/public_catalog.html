@@ -1,0 +1,90 @@
+{% from '_macros.html' import pager %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17382f">
+  <title>Catálogo General · ScrapBot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='public_catalog.css') }}">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="brand" href="{{ url_for('web.public_catalog') }}">
+        <span class="brand-mark" aria-hidden="true">CG</span>
+        <span><span class="brand-name">Catálogo General</span><span class="brand-caption">Ofertas de tiendas autorizadas</span></span>
+      </a>
+      <a class="staff-link" href="{{ url_for('auth.login') }}">Acceso al panel interno</a>
+    </div>
+  </header>
+  <main class="catalog">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Comparador de productos</p>
+        <h1 id="page-title">Todo el catálogo, en un solo lugar.</h1>
+        <p class="intro-copy">Busca productos de las tiendas conectadas y visita su catálogo original para comprar.</p>
+      </div>
+      <div class="catalog-count"><strong>{{ pg.total }}</strong><span>ofertas encontradas</span></div>
+    </section>
+    <section class="sources-section" aria-labelledby="sources-title">
+      <div class="section-label"><h2 id="sources-title">Tiendas conectadas</h2><span>{{ sources|length }} fuentes activas</span></div>
+      <div class="source-list">
+        {% for s in sources %}
+          {% if s.external_url %}<a class="source-card" href="{{ s.external_url }}" target="_blank" rel="noopener noreferrer">
+          {% else %}<div class="source-card">{% endif %}
+            {% if s.image %}<img class="source-image" src="{{ s.image }}" alt="" loading="lazy">
+            {% else %}<span class="source-initials" aria-hidden="true">{{ s.initials }}</span>{% endif %}
+            <span class="source-copy"><strong>{{ s.name }}</strong><small>{{ s.product_count }} productos disponibles</small></span>
+          {% if s.external_url %}</a>{% else %}</div>{% endif %}
+        {% else %}<div class="empty"><strong>Aún no hay tiendas activas.</strong></div>{% endfor %}
+      </div>
+    </section>
+    <form class="filters" method="get" action="{{ url_for('web.public_catalog') }}">
+      <div class="field"><label for="q">Buscar producto</label><input id="q" name="q" type="search" value="{{ q }}" placeholder="Nombre, SKU o EAN"></div>
+      <div class="field"><label for="source">Tienda</label><select id="source" name="source">
+        <option value="">Todas las tiendas</option>
+        {% for s in sources %}<option value="{{ s.id }}" {% if source == s.id|string %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+      </select></div>
+      <div class="field"><label for="availability">Disponibilidad</label><select id="availability" name="availability">
+        <option value="">Cualquiera</option><option value="available" {% if availability == 'available' %}selected{% endif %}>Disponible</option>
+        <option value="out" {% if availability == 'out' %}selected{% endif %}>Agotado</option>
+      </select></div>
+      <div class="field"><label for="sort">Ordenar por</label><select id="sort" name="sort">
+        <option value="name" {% if sort == 'name' %}selected{% endif %}>Nombre</option>
+        <option value="price_low" {% if sort == 'price_low' %}selected{% endif %}>Menor precio</option>
+        <option value="price_high" {% if sort == 'price_high' %}selected{% endif %}>Mayor precio</option>
+        <option value="recent" {% if sort == 'recent' %}selected{% endif %}>Más recientes</option>
+      </select></div>
+      <div class="filter-actions"><button class="apply" type="submit">Aplicar</button>
+        {% if q or source or availability or sort != 'name' %}<a class="clear" href="{{ url_for('web.public_catalog') }}">Limpiar</a>{% endif %}
+      </div>
+    </form>
+    <section aria-labelledby="offers-title">
+      <div class="results-heading"><h2 id="offers-title">Ofertas del catálogo</h2><span>Mostrando {{ products|length }} de {{ pg.total }}</span></div>
+      {% if products %}<div class="offer-grid">
+        {% for p in products %}<article class="offer">
+          <div class="offer-top"><span class="source-name">{{ p.source_name }}</span>{% if p.price_frozen %}<span class="frozen">En revisión</span>{% endif %}</div>
+          <h3>{{ p.name }}</h3>
+          <div class="identifiers">
+            {% if p.sku %}<span>SKU <b>{{ p.sku }}</b></span>{% endif %}
+            {% if p.ean %}<span>EAN <b>{{ p.ean }}</b></span>{% endif %}
+          </div>
+          <div class="offer-bottom">
+            <div><span class="price-label">Precio publicado</span><strong class="price">{{ p.final_price|clp }}</strong>
+              {% if p.available == 0 or p.stock == 0 %}<span class="stock out">Agotado</span>
+              {% elif p.stock is not none %}<span class="stock">{{ p.stock }} unidades</span>
+              {% elif p.available == 1 %}<span class="stock">Disponible</span>{% endif %}
+            </div>
+            {% if p.source_url %}<a class="offer-link" href="{{ p.source_url }}" target="_blank" rel="noopener noreferrer">Ver tienda ↗</a>
+            {% else %}<span class="offer-link disabled">Tienda sin enlace</span>{% endif %}
+          </div>
+          <span class="updated">Actualizado {{ p.updated_at|dt }}</span>
+        </article>{% endfor %}
+      </div>{% else %}<div class="empty"><strong>No encontramos ofertas con esos filtros.</strong><span>Prueba otra búsqueda o muestra todas las tiendas.</span></div>{% endif %}
+      {{ pager(pg) }}
+    </section>
+    <footer class="footer">Precios consultados desde fuentes autorizadas. La disponibilidad y el precio final se confirman en cada tienda. · <a href="{{ url_for('auth.login') }}">Administración</a></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import run_chip %}
+{% block title %}Ejecución {{ run.id }}{% endblock %}
+{% block content %}
+<h1>Ejecución #{{ run.id }} {{ run_chip(run.status) }}</h1>
+<p class="lead"><a href="{{ url_for('web.runs') }}">Ejecuciones</a> · {{ run.source_name }}</p>
+{% if run.status == 'running' %}<div class="flash info" role="status">La ejecución sigue en curso. Recargue la página para ver el avance.</div>{% endif %}
+{% if run.message %}<div class="flash {{ 'error' if run.status == 'failed' else 'warning' }}">{{ run.message }}</div>{% endif %}
+<div class="panel"><dl class="kv">
+  <dt>Origen</dt><dd>{{ {'manual': 'Manual', 'scheduled': 'Programada', 'cli': 'Línea de comandos'}[run.trigger] }}{% if run.triggered_by %} ({{ run.triggered_by }}){% endif %}</dd>
+  <dt>Inicio / término</dt><dd>{{ run.started_at|dt }} → {{ run.finished_at|dt }}{% if run.duration_seconds is not none %} ({{ run.duration_seconds }} s){% endif %}</dd>
+  <dt>Páginas descargadas</dt><dd>{{ run.pages_fetched }}</dd>
+  <dt>Productos capturados</dt><dd>{{ run.items_found }}</dd>
+  <dt>Nuevos / actualizados / sin cambios</dt><dd>{{ run.items_created }} / {{ run.items_updated }} / {{ run.items_unchanged }}</dd>
+  <dt>Congelados por variación</dt><dd>{{ run.items_frozen }}</dd>
+  <dt>Inválidos / duplicados</dt><dd>{{ run.items_invalid }} / {{ run.items_duplicates }}</dd>
+  <dt>Errores registrados</dt><dd>{{ run.errors_count }}</dd>
+</dl></div>
+
+<h2>Peticiones HTTP</h2>
+<div class="table-wrap">
+{% if http %}
+<table>
+  <thead><tr><th>Hora</th><th>URL</th><th class="num">Intento</th><th class="num">Código</th><th class="num">Tiempo</th><th>SHA-256</th><th>Error</th></tr></thead>
+  <tbody>{% for h in http %}
+    <tr><td>{{ h.created_at|dt }}</td><td class="mono">{{ h.url }}</td><td class="num">{{ h.attempt }}</td><td class="num">{{ h.status_code or '—' }}</td>
+      <td class="num">{{ h.response_ms ~ ' ms' if h.response_ms is not none else '—' }}</td><td class="mono">{{ h.content_sha256[:16] ~ '…' if h.content_sha256 else '—' }}</td><td>{{ h.error or '' }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Sin peticiones registradas.</div>{% endif %}
+</div>
+
+<h2>Errores de parsing y validación</h2>
+<div class="table-wrap">
+{% if errs %}
+<table>
+  <thead><tr><th>Campo</th><th>Ítem</th><th>Detalle</th><th>URL</th></tr></thead>
+  <tbody>{% for e in errs %}
+    <tr><td>{{ e.field or '—' }}</td><td class="num">{{ e.item_index if e.item_index is not none else '—' }}</td><td>{{ e.message }}</td><td class="mono">{{ e.url or '' }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Sin errores de parsing.</div>{% endif %}
+</div>
+{% endblock %}

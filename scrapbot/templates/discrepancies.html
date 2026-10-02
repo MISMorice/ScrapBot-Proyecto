@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, disc_chip, pager %}
+{% block title %}Alertas de precio{% endblock %}
+{% block content %}
+<h1>Alertas de precio</h1>
+<p class="lead">Cuando un precio capturado varía más que el umbral respecto del publicado, no se publica: queda aquí hasta que un analista lo apruebe o rechace con un motivo.</p>
+<form class="filters" method="get">
+  <div><label for="status">Estado</label><select id="status" name="status">
+    {% for v, l in [('pending','Pendientes'),('approved','Aprobadas'),('rejected','Rechazadas'),('superseded','Reemplazadas'),('all','Todas')] %}
+      <option value="{{ v }}" {% if status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+  <button class="btn" type="submit">Filtrar</button>
+</form>
+<div class="table-wrap">
+{% for d in rows %}
+  <div class="review">
+    <div>
+      <h3><a href="{{ url_for('web.product_detail', product_id=d.product_id) }}">{{ d.name }}</a></h3>
+      <div class="muted mono">{{ d.sku or '' }} {{ d.ean or '' }} · {{ d.source_name }} · detectada {{ d.created_at|dt }}</div>
+      <div class="shift"><span class="old">{{ d.old_final_price|clp }}</span><span class="new">{{ d.new_final_price|clp }}</span><span class="pct">{{ '+' if d.new_final_price > d.old_final_price else '−' }}{{ d.variation_pct }} %</span></div>
+      <meter min="0" max="100" value="{{ [d.variation_pct, 100]|min }}" low="{{ d.threshold_pct }}" high="{{ d.threshold_pct }}" optimum="0" aria-label="Variación {{ d.variation_pct }} por ciento"></meter>
+      <div class="muted">Umbral configurado: {{ '%g'|format(d.threshold_pct) }} %. El precio publicado sigue siendo {{ d.old_final_price|clp }}.</div>
+      {% if d.status != 'pending' %}<p>{{ disc_chip(d.status) }} por {{ d.resolved_by }} el {{ d.resolved_at|dt }} — {{ d.justification }}</p>{% endif %}
+    </div>
+    {% if d.status == 'pending' %}
+    <form method="post" class="stack" action="{{ url_for('web.discrepancy_resolve', disc_id=d.id) }}">
+      {{ csrf() }}
+      <label for="j{{ d.id }}">Motivo de la decisión</label>
+      <textarea id="j{{ d.id }}" name="justification" required minlength="5" placeholder="Ej.: confirmado con el proveedor por correo"></textarea>
+      <p class="actions"><button class="btn" name="decision" value="approve" type="submit">Aprobar y publicar</button>
+      <button class="btn danger" name="decision" value="reject" type="submit">Rechazar</button></p>
+    </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="empty">{% if status == 'pending' %}No hay variaciones esperando revisión.{% else %}No hay alertas con este estado.{% endif %}</div>
+{% endfor %}
+</div>
+{{ pager(pg) }}
+{% endblock %}

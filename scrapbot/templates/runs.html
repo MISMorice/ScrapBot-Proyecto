@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import run_chip, pager %}
+{% block title %}Ejecuciones{% endblock %}
+{% block content %}
+<h1>Ejecuciones</h1>
+<p class="lead">Cada sincronización con una fuente, manual o programada.</p>
+<div class="table-wrap">
+{% if runs %}
+<table>
+  <thead><tr><th>#</th><th>Fuente</th><th>Origen</th><th>Inicio</th><th>Estado</th><th class="num">Páginas</th><th class="num">Productos</th><th class="num">Nuevos</th><th class="num">Actualizados</th><th class="num">Congelados</th><th class="num">Errores</th><th class="num">Duración</th></tr></thead>
+  <tbody>{% for r in runs %}
+    <tr><td><a href="{{ url_for('web.run_detail', run_id=r.id) }}">{{ r.id }}</a></td><td>{{ r.source_name }}</td>
+      <td>{{ {'manual': 'Manual', 'scheduled': 'Programada', 'cli': 'Línea de comandos'}[r.trigger] }}</td><td>{{ r.started_at|dt }}</td><td>{{ run_chip(r.status) }}</td>
+      <td class="num">{{ r.pages_fetched }}</td><td class="num">{{ r.items_found }}</td><td class="num">{{ r.items_created }}</td><td class="num">{{ r.items_updated }}</td>
+      <td class="num">{{ r.items_frozen }}</td><td class="num">{{ r.errors_count }}</td><td class="num">{{ r.duration_seconds ~ ' s' if r.duration_seconds is not none else '—' }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Aún no hay ejecuciones.</div>{% endif %}
+</div>
+{{ pager(pg) }}
+{% endblock %}

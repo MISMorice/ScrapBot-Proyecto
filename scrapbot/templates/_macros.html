@@ -1,0 +1,28 @@
+{% macro csrf() %}<input type="hidden" name="_csrf" value="{{ csrf_token() }}">{% endmacro %}
+
+{% macro run_chip(status) %}
+  {% set m = {'success': ('ok', 'Correcta'), 'partial': ('warn', 'Con observaciones'), 'failed': ('bad', 'Fallida'), 'running': ('info', 'En curso')} %}
+  <span class="chip {{ m[status][0] }}">{{ m[status][1] }}</span>
+{% endmacro %}
+
+{% macro disc_chip(status) %}
+  {% set m = {'pending': ('warn', 'Pendiente'), 'approved': ('ok', 'Aprobada'), 'rejected': ('bad', 'Rechazada'), 'superseded': ('off', 'Reemplazada')} %}
+  <span class="chip {{ m[status][0] }}">{{ m[status][1] }}</span>
+{% endmacro %}
+
+{% macro hist_chip(status) %}
+  {% set m = {'applied': ('ok', 'Publicado'), 'held': ('warn', 'Retenido'), 'approved': ('ok', 'Aprobado'), 'rejected': ('bad', 'Rechazado'), 'superseded': ('off', 'Reemplazado')} %}
+  <span class="chip {{ m[status][0] }}">{{ m[status][1] }}</span>
+{% endmacro %}
+
+{% macro err(errors, key) %}{% if errors.get(key) %}<div class="field-error">{{ errors[key] }}</div>{% endif %}{% endmacro %}
+
+{% macro pager(pg) %}
+  {% if pg.pages > 1 %}
+  <div class="pager">
+    {% if pg.page > 1 %}<a href="?{{ request.args.to_dict()|dictupdate('page', pg.page - 1) }}">Anterior</a>{% endif %}
+    <span>Página {{ pg.page }} de {{ pg.pages }} ({{ pg.total }} registros)</span>
+    {% if pg.page < pg.pages %}<a href="?{{ request.args.to_dict()|dictupdate('page', pg.page + 1) }}">Siguiente</a>{% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}

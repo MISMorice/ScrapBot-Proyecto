@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import run_chip %}
+{% block title %}Panel{% endblock %}
+{% block content %}
+<h1>Panel</h1>
+<p class="lead">Estado del catálogo y de las últimas sincronizaciones.</p>
+
+<div class="stats">
+  <div class="stat"><b>{{ kpi.products }}</b><span>productos en el catálogo</span></div>
+  <div class="stat"><b>{{ kpi.sources }}</b><span>fuentes activas</span></div>
+  <div class="stat {% if kpi.frozen %}alert{% endif %}"><b>{{ kpi.frozen }}</b>
+    <span>{% if kpi.frozen %}<a href="{{ url_for('web.discrepancies') }}">variaciones esperando revisión</a>{% else %}variaciones esperando revisión{% endif %}</span></div>
+</div>
+
+<h2>Indicadores de los últimos 7 días</h2>
+<div class="stats">
+  <div class="stat"><b>{{ metrics.runs_per_day }}</b><span>ejecuciones por día (OE3)</span></div>
+  <div class="stat"><b>{{ metrics.secs_per_100 if metrics.secs_per_100 is not none else '—' }}{% if metrics.secs_per_100 is not none %} s{% endif %}</b><span>tiempo por cada 100 productos (OE1)</span></div>
+  <div class="stat"><b>{{ metrics.error_rate if metrics.error_rate is not none else '—' }}{% if metrics.error_rate is not none %} %{% endif %}</b><span>registros descartados por error (OE2)</span></div>
+</div>
+{% if upcoming %}<p class="muted">Próximas ejecuciones programadas: {{ upcoming|join(' · ') }}</p>{% endif %}
+
+<h2>Últimas ejecuciones</h2>
+<div class="table-wrap">
+{% if runs %}
+<table>
+  <thead><tr><th>#</th><th>Fuente</th><th>Inicio</th><th>Estado</th><th class="num">Productos</th><th class="num">Congelados</th><th class="num">Duración</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr><td><a href="{{ url_for('web.run_detail', run_id=r.id) }}">{{ r.id }}</a></td><td>{{ r.source_name }}</td><td>{{ r.started_at|dt }}</td>
+        <td>{{ run_chip(r.status) }}</td><td class="num">{{ r.items_found }}</td><td class="num">{{ r.items_frozen }}</td>
+        <td class="num">{{ r.duration_seconds ~ ' s' if r.duration_seconds is not none else '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<div class="empty">Aún no hay ejecuciones. Cree una fuente y use «Ejecutar ahora».</div>{% endif %}
+</div>
+{% endblock %}

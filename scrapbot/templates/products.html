@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import pager %}
+{% block title %}Productos{% endblock %}
+{% block content %}
+<section class="catalog-heading">
+  <div>
+    <p class="catalog-eyebrow">Catálogo / Inventario</p>
+    <h1>Productos</h1>
+    <p class="lead">Productos homologados, precios en CLP y disponibilidad por fuente.</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="{{ url_for('web.public_catalog') }}">Ver catálogo público</a>
+    <a class="btn secondary" href="{{ url_for('web.export_catalog') }}">Exportar CSV</a>
+  </div>
+</section>
+
+<section class="catalog-summary" aria-label="Resumen del catálogo">
+  <div class="catalog-stat">
+    <span class="catalog-stat-label">Resultados</span>
+    <strong>{{ pg.total }}</strong>
+    <span class="catalog-stat-note">productos encontrados</span>
+  </div>
+  <div class="catalog-stat">
+    <span class="catalog-stat-label">Fuentes</span>
+    <strong>{{ sources|length }}</strong>
+    <span class="catalog-stat-note">registradas en el sistema</span>
+  </div>
+  <div class="catalog-stat">
+    <span class="catalog-stat-label">Página actual</span>
+    <strong>{{ pg.page }} <small>/ {{ pg.pages }}</small></strong>
+    <span class="catalog-stat-note">del listado filtrado</span>
+  </div>
+</section>
+
+<section class="catalog-filters" aria-labelledby="catalog-filters-title">
+  <div class="catalog-filter-heading">
+    <h2 id="catalog-filters-title">Buscar y filtrar</h2>
+    <span>{{ pg.total }} {{ 'resultado' if pg.total == 1 else 'resultados' }}</span>
+  </div>
+  <form class="catalog-filter-form" method="get">
+    <div class="catalog-filter-field search-field">
+      <label for="q">Producto o identificador</label>
+      <input type="text" id="q" name="q" value="{{ q }}" placeholder="Nombre, SKU o EAN">
+    </div>
+    <div class="catalog-filter-field">
+      <label for="source">Fuente</label>
+      <select id="source" name="source">
+        <option value="">Todas las fuentes</option>
+        {% for s in sources %}<option value="{{ s.id }}" {% if source == s.id|string %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="catalog-filter-field">
+      <label for="filter">Estado del catálogo</label>
+      <select id="filter" name="filter">
+        <option value="">Todos los productos</option>
+        <option value="frozen" {% if flt == 'frozen' %}selected{% endif %}>Precio congelado</option>
+        <option value="nostock" {% if flt == 'nostock' %}selected{% endif %}>Sin stock</option>
+      </select>
+    </div>
+    <div class="catalog-filter-actions">
+      <button class="btn" type="submit">Aplicar filtros</button>
+      {% if q or source or flt %}<a class="catalog-clear" href="{{ url_for('web.products') }}">Limpiar</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<div class="catalog-list-heading">
+  <h2>Listado de productos</h2>
+  <span>Mostrando {{ products|length }} de {{ pg.total }}</span>
+</div>
+<div class="table-wrap">
+{% if products %}
+<table class="products-table">
+  <thead><tr><th>Producto</th><th>SKU / EAN</th><th>Fuente</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Final</th><th class="num">Stock</th><th>Actualizado</th></tr></thead>
+  <tbody>
+  {% for p in products %}
+    <tr>
+      <td class="product-name-cell">
+        <a class="product-name" href="{{ url_for('web.product_detail', product_id=p.id) }}">{{ p.name }}</a>
+        {% if p.price_frozen %}<span class="chip warn">Precio congelado</span>{% endif %}
+      </td>
+      <td>
+        <div class="product-identifiers">
+          {% if p.sku %}<span><small>SKU</small><code>{{ p.sku }}</code></span>{% endif %}
+          {% if p.ean %}<span><small>EAN</small><code>{{ p.ean }}</code></span>{% endif %}
+          {% if not p.sku and not p.ean %}<span class="muted">Sin identificador</span>{% endif %}
+        </div>
+      </td>
+      <td><span class="product-source">{{ p.source_name }}</span></td>
+      <td class="num price-secondary">{{ p.net_price|clp }}</td>
+      <td class="num price-secondary">{{ p.vat_amount|clp }}</td>
+      <td class="num product-final-price">{{ p.final_price|clp }}</td>
+      <td class="num">
+        {% if p.available == 0 %}<span class="chip bad">Agotado</span>
+        {% elif p.stock is not none %}<span class="stock-count">{{ p.stock }}</span><span class="stock-unit">unid.</span>
+        {% elif p.available == 1 %}<span class="chip ok">Disponible</span>
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td class="product-updated">{{ p.updated_at|dt }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="empty product-empty">
+    <strong>No hay productos que coincidan.</strong>
+    <span>Prueba otros términos de búsqueda o cambia los filtros.</span>
+    {% if q or source or flt %}<a class="btn secondary small" href="{{ url_for('web.products') }}">Ver todo el catálogo</a>{% endif %}
+  </div>
+{% endif %}
+</div>
+{{ pager(pg) }}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import pager %}
+{% block title %}Accesos{% endblock %}
+{% block content %}
+<h1>Registro de accesos</h1>
+<p class="lead">Todos los intentos de inicio de sesión, correctos y fallidos.</p>
+<div class="table-wrap">
+{% if rows %}
+<table>
+  <thead><tr><th>Fecha</th><th>Usuario</th><th>Resultado</th><th>Detalle</th><th>IP</th></tr></thead>
+  <tbody>{% for a in rows %}
+    <tr><td>{{ a.created_at|dt }}</td><td>{{ a.username or '—' }}</td><td>{% if a.success %}<span class="chip ok">Correcto</span>{% else %}<span class="chip bad">Denegado</span>{% endif %}</td><td>{{ a.reason }}</td><td class="mono">{{ a.ip or '' }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Sin intentos registrados.</div>{% endif %}
+</div>
+{{ pager(pg) }}
+{% endblock %}

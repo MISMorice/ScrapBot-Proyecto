@@ -1,0 +1,45 @@
+{% from '_macros.html' import csrf %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Panel{% endblock %} · ScrapBot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand">ScrapBot<small>Catálogos desde fuentes autorizadas</small></div>
+    <nav aria-label="Principal">
+      {% macro item(endpoint, label, prefix) %}
+        <a href="{{ url_for(endpoint) }}" {% if current_path == url_for(endpoint) or (prefix and current_path.startswith(prefix)) %}aria-current="page"{% endif %}>{{ label }}{{ caller() if caller else '' }}</a>
+      {% endmacro %}
+      {{ item('web.dashboard', 'Panel') }}
+      {% call item('web.discrepancies', 'Alertas de precio', '/discrepancies') %}{% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}{% endcall %}
+      {{ item('web.sources', 'Fuentes', '/sources') }}
+      {{ item('web.products', 'Productos', '/products') }}
+      {{ item('web.public_catalog', 'Catálogo público', '/catalogo') }}
+      {{ item('web.runs', 'Ejecuciones', '/runs') }}
+      {{ item('web.audit_view', 'Auditoría', '/audit') }}
+      {% if g.user and g.user['role'] == 'admin' %}
+        <div class="group">Administración</div>
+        {{ item('web.access_log', 'Accesos') }}
+        {{ item('web.users', 'Usuarios') }}
+        {{ item('web.settings', 'Parámetros') }}
+      {% endif %}
+    </nav>
+    <div class="userbox">
+      {{ g.user['username'] }} · {{ 'Administrador' if g.user['role'] == 'admin' else 'Analista' }}
+      <form method="post" action="{{ url_for('auth.logout') }}">{{ csrf() }}<button class="btn link" type="submit">Cerrar sesión</button></form>
+    </div>
+  </aside>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}<div class="flash {{ cat }}" role="status">{{ msg }}</div>{% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

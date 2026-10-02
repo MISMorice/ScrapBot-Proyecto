@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, err %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+<h1>Usuarios</h1>
+<p class="lead">Los administradores configuran fuentes y parámetros; los analistas revisan precios y lanzan ejecuciones.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+  <tbody>{% for u in users %}
+    <tr><td>{{ u.username }}</td><td>{{ 'Administrador' if u.role == 'admin' else 'Analista' }}</td>
+      <td>{% if not u.active %}<span class="chip off">Inactivo</span>{% elif u.locked_until and u.locked_until > now_utc %}<span class="chip bad">Bloqueado</span>{% else %}<span class="chip ok">Activo</span>{% endif %}</td>
+      <td class="actions">
+        <form method="post" class="inline" action="{{ url_for('web.user_unlock', user_id=u.id) }}">{{ csrf() }}<button class="btn small secondary" type="submit">Desbloquear</button></form>
+        {% if u.id != g.user['id'] %}<form method="post" class="inline" action="{{ url_for('web.user_toggle', user_id=u.id) }}">{{ csrf() }}<button class="btn small secondary" type="submit">{{ 'Desactivar' if u.active else 'Activar' }}</button></form>{% endif %}
+      </td></tr>
+  {% endfor %}</tbody>
+</table></div>
+
+<h2>Nuevo usuario</h2>
+<form method="post" class="stack panel">
+  {{ csrf() }}
+  <div class="grid2">
+    <div><label for="username">Usuario</label><input type="text" id="username" name="username" autocomplete="off" required>{{ err(errors, 'username') }}</div>
+    <div><label for="role">Rol</label><select id="role" name="role"><option value="analyst">Analista</option><option value="admin">Administrador</option></select>{{ err(errors, 'role') }}</div>
+  </div>
+  <label for="password">Contraseña <span class="hint">Mínimo 10 caracteres, combinando letras y números.</span></label>
+  <input type="password" id="password" name="password" autocomplete="new-password" required>{{ err(errors, 'password') }}
+  <p><button class="btn" type="submit">Crear usuario</button></p>
+</form>
+{% endblock %}

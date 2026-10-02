@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, run_chip %}
+{% block title %}Fuentes{% endblock %}
+{% block content %}
+<div class="actions between"><h1>Fuentes autorizadas</h1>
+{% if g.user['role'] == 'admin' %}<a class="btn" href="{{ url_for('web.source_new') }}">Nueva fuente</a>{% endif %}</div>
+<p class="lead">Solo se consultan los sitios registrados aquí, respetando su robots.txt y con pausas entre peticiones.</p>
+<div class="table-wrap">
+{% if sources %}
+<table>
+  <thead><tr><th>Nombre</th><th>Reglas</th><th class="num">Productos</th><th>Última ejecución</th><th>Estado</th><th></th></tr></thead>
+  <tbody>
+  {% for s in sources %}
+    <tr>
+      <td><a href="{{ url_for('web.source_detail', source_id=s.id) }}">{{ s.name }}</a>{% if not s.active %} <span class="chip off">Desactivada</span>{% endif %}</td>
+      <td>v{{ s.version }}</td><td class="num">{{ s.product_count }}</td>
+      <td>{{ s.last_run|dt }}</td><td>{% if s.last_status %}{{ run_chip(s.last_status) }}{% else %}<span class="muted">Sin ejecuciones</span>{% endif %}</td>
+      <td class="actions">
+        {% if s.active %}<form method="post" class="inline" action="{{ url_for('web.source_run', source_id=s.id) }}">{{ csrf() }}<button class="btn small" type="submit">Ejecutar ahora</button></form>{% endif %}
+        {% if g.user['role'] == 'admin' %}<form method="post" class="inline" action="{{ url_for('web.source_toggle', source_id=s.id) }}">{{ csrf() }}<button class="btn small secondary" type="submit">{{ 'Desactivar' if s.active else 'Activar' }}</button></form>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<div class="empty">No hay fuentes registradas.{% if g.user['role'] == 'admin' %} Cree la primera con «Nueva fuente».{% endif %}</div>{% endif %}
+</div>
+{% endblock %}
