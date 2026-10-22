@@ -1,121 +1,205 @@
 # ScrapBot
 
-Sistema automatizado de extracción, validación y sincronización de catálogos e-commerce desde **fuentes autorizadas**.
-Implementa lo descrito en los Capítulos I–III del proyecto de título *“Diseño de un Bot para automatizar la recolección de datos de catálogos web”*.
+ScrapBot es un prototipo web para recopilar y comparar precios de catálogos en línea. Permite registrar fuentes autorizadas, extraer productos, normalizar sus precios y mostrar las ofertas en un catálogo consolidado. También registra variaciones importantes para que una persona administradora las revise antes de aplicar el nuevo precio.
 
-- **Presentación:** Flask 3 + Jinja2 (panel de administración)
-- **Lógica / motor:** Python 3.11+ · Requests · BeautifulSoup4 (CSS) · lxml (XPath)
-- **Persistencia:** SQLite 3 en modo WAL, escrituras atómicas (ACID)
-- **Pruebas:** pytest (90 pruebas)
+El proyecto incluye tiendas locales de demostración. Estas sirven para probar el flujo completo sin depender de tiendas externas; no son datos de comercios reales.
 
-## Puesta en marcha
+## Objetivo
 
-```bash
-python -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+Facilitar la consulta centralizada de precios y apoyar su seguimiento mediante capturas periódicas, historial y alertas de variación.
 
-python manage.py init-db
-python manage.py create-user martin --role admin     # pide la contraseña (mín. 10 caracteres, letras y números)
-python manage.py serve                               # http://127.0.0.1:5000
+## Funcionalidades principales
+
+- Panel privado con inicio de sesión y roles de administrador y analista.
+- Creación de usuarios desde el panel (para administradores) o desde la línea de comandos.
+- Registro de fuentes y configuración de selectores CSS o XPath.
+- Extracción de páginas HTML, incluyendo navegación por paginación.
+- Normalización de SKU/EAN, nombre, precio, IVA y disponibilidad.
+- Historial de precios y revisión de variaciones anómalas.
+- Catálogo público con búsqueda, filtros y enlaces a las fuentes.
+- Registro de ejecuciones, errores de descarga y errores de extracción.
+- Tiendas locales de demostración: Ferretería, Electro y Jardín.
+
+## Arquitectura: metodología por capas
+
+La aplicación organiza sus responsabilidades en tres capas lógicas. Son partes de una misma aplicación Flask, no tres servidores o programas independientes.
+
+| Capa | Componentes principales | Responsabilidad |
+| --- | --- | --- |
+| Presentación | `scrapbot/web.py`, `scrapbot/templates/`, `scrapbot/static/` | Recibe las solicitudes web, valida las acciones de la interfaz y muestra el panel, el catálogo, las alertas y los resultados. |
+| Lógica de negocio | `scrapbot/engine/`, `scrapbot/forms.py`, `scrapbot/auth.py` | Ejecuta la captura y paginación, interpreta selectores, normaliza productos, detecta variaciones y aplica reglas de autenticación y validación. |
+| Datos | `scrapbot/db.py`, `scrapbot/schema.sql`, SQLite | Define y consulta las tablas; conserva usuarios, fuentes, productos, ejecuciones, historial y alertas. |
+
+### Flujo de una captura
+
+```text
+Usuario inicia una captura
+        ↓
+Presentación (web.py) solicita la ejecución
+        ↓
+Negocio (engine/pipeline.py) coordina la descarga y el procesamiento
+        ↓
+HTTP client → extractor → normalizador → detección de variaciones
+        ↓
+Datos (SQLite) guarda productos, historial, ejecución y alertas
+        ↓
+Presentación muestra el resultado en el panel y el catálogo
 ```
 
-### Catálogo público
+La separación es lógica y facilita entender las responsabilidades. Actualmente algunas rutas de `web.py` consultan la base de datos directamente para construir sus vistas; por eso las capas están diferenciadas, pero no completamente aisladas mediante una capa de servicios o repositorios.
 
-Con el servidor activo, visite `http://127.0.0.1:5000/catalogo`. Esta vista de solo lectura reúne las ofertas de fuentes activas, permite buscar y ordenar, y enlaza al catálogo configurado para cada tienda. El panel interno continúa protegido en `/`.
+## Requisitos
 
-### Probarlo sin tocar sitios reales (tienda de demostración)
+- Python 3.11 o superior.
+- Windows, macOS o Linux.
+- Las dependencias indicadas en `requirements.txt`.
 
-```bash
-python -m demo_site.app              # terminal 1 -> tiendas en el puerto 5001
-python manage.py seed-demo           # terminal 2: registra Ferretería, Electro y Jardín Demo
-python manage.py run --all           # o use «Ejecutar ahora» en el panel
+## Instalación e inicio en Windows
+
+Abre PowerShell en la carpeta raíz del proyecto (donde están `manage.py` y `requirements.txt`) y ejecuta:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe manage.py init-db
+.\.venv\Scripts\python.exe manage.py create-user profesor --role admin
 ```
 
-Catálogos: `/catalogo` (ferretería), `/electronica` (tecnología) y `/jardin` (jardinería). Cada tienda tiene paginación y un panel local para cambiar precios; las tres comparten `robots.txt`.
-Ferretería Demo conserva los casos de prueba de precio “Consultar”, EAN inválido y SKU duplicado. Para provocar una **variación anómala** (R3): abra `http://127.0.0.1:5001/_demo/precio?sku=DEMO-003&valor=39990`, vuelva a ejecutar y revise **Alertas de precio**.
+El último comando solicita una contraseña de forma interactiva. Debe tener al menos 10 caracteres y cumplir las reglas de contraseña de la aplicación. El nombre `profesor` es solo un ejemplo: puedes reemplazarlo por el usuario que necesites. Si el usuario ya existe, elige otro nombre.
 
-### Ejecuciones intradiarias
+Inicia el panel:
 
-`manage.py serve` inicia un programador interno con 4 horarios diarios (00:00, 06:00, 12:00, 18:00, hora de Chile), editables en **Parámetros**.
-Alternativa sin proceso residente: programar `python manage.py run --all` con cron o el Programador de tareas de Windows.
-
-### Producción
-
-```bash
-pip install waitress
-waitress-serve --call wsgi:app          # o: gunicorn wsgi:app
+```powershell
+.\.venv\Scripts\python.exe manage.py serve
 ```
 
-Definir `SCRAPBOT_SECRET_KEY`, `SCRAPBOT_COOKIE_SECURE=1` (detrás de HTTPS) y `SCRAPBOT_USER_AGENT` con un contacto real de la organización.
-Si no se define la clave secreta, se genera en `instance/secret.key`.
+Abre [http://127.0.0.1:5000](http://127.0.0.1:5000) e inicia sesión con la cuenta creada.
+
+> La base de datos se crea en `instance/scrapbot.db`. Los usuarios y los productos permanecen allí entre ejecuciones. No hay una contraseña predeterminada.
+
+### Linux o macOS
+
+Desde la raíz del proyecto:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python manage.py init-db
+.venv/bin/python manage.py create-user profesor --role admin
+.venv/bin/python manage.py serve
+```
+
+## Uso de la aplicación
+
+- **Panel privado:** [http://127.0.0.1:5000/](http://127.0.0.1:5000/). Requiere iniciar sesión. Desde el panel se administran fuentes, productos, ejecuciones, alertas, usuarios y parámetros.
+- **Catálogo público:** [http://127.0.0.1:5000/catalogo](http://127.0.0.1:5000/catalogo). No requiere iniciar sesión. Muestra ofertas activas y permite buscar y filtrar.
+- **Usuarios:** `/users`. Solo disponible para administradores. Permite crear usuarios y activar, desactivar o desbloquear cuentas.
+
+Roles disponibles:
+
+- `admin`: administra fuentes, parámetros y usuarios.
+- `analyst`: puede consultar información y realizar tareas de análisis permitidas, sin administrar usuarios.
+
+## Demostración local
+
+La demo tiene tres catálogos HTML locales que ScrapBot puede visitar. Para usarla, abre **dos terminales PowerShell** en la carpeta raíz del proyecto.
+
+En la primera terminal, inicia las tiendas demo y déjala abierta:
+
+```powershell
+.\.venv\Scripts\python.exe -m demo_site.app
+```
+
+En la segunda terminal, registra las fuentes de demostración y ejecuta una captura:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed-demo
+.\.venv\Scripts\python.exe manage.py run --all
+```
+
+Las tiendas de demostración están disponibles en:
+
+- [Ferretería](http://127.0.0.1:5001/catalogo)
+- [Electro](http://127.0.0.1:5001/electronica)
+- [Jardín](http://127.0.0.1:5001/jardin)
+
+Después de una captura, consulta el [catálogo consolidado](http://127.0.0.1:5000/catalogo) y el panel de ejecuciones. Para probar una variación de precio en Ferretería, cambia el precio del SKU de demo y vuelve a ejecutar la captura:
+
+```text
+http://127.0.0.1:5001/_demo/precio?sku=DEMO-003&valor=39990
+```
+
+Luego revisa las alertas de precio en el panel y aprueba o rechaza el cambio con una justificación.
+
+### Capturar una fuente específica
+
+Cada fuente tiene un identificador numérico, visible en la administración de fuentes. Para capturar solo una:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py run --source ID
+```
+
+Reemplaza `ID` por el identificador de la fuente. Para capturar todas las fuentes activas, usa `--all`.
 
 ## Pruebas
 
+Desde la raíz del proyecto:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+En Linux o macOS:
+
 ```bash
-pytest -q            # o: python -m unittest discover -s tests -t .
+.venv/bin/python -m pytest -q
 ```
 
-Las pruebas levantan servidores HTTP locales; no usan internet.
+La suite incluye pruebas de autenticación y rutas web, cliente HTTP, extracción, normalización, almacenamiento, programación y flujo completo. La prueba de aceptación procesa un lote de 100 productos y comprueba capturas repetidas.
 
-## Estructura
+## Seguridad y uso responsable
 
-```
-manage.py              CLI: init-db, create-user, seed-demo, run, serve
-config.py              parámetros técnicos (timeout, reintentos, pausas, sesión…)
+- Las contraseñas se almacenan con hash PBKDF2; no se pueden consultar desde la base de datos.
+- El panel usa sesiones con expiración, protección CSRF, bloqueo temporal tras intentos fallidos y una política CSP.
+- Por defecto, el extractor respeta `robots.txt`, identifica sus solicitudes y aplica pausas, timeout y reintentos.
+- Registra únicamente fuentes para las que tengas autorización. Respeta las condiciones de uso de cada sitio y evita sobrecargar sus servicios.
+- Las tiendas incluidas son una demo local; antes de usar un sitio real, configura selectores apropiados y verifica que el acceso esté permitido.
+
+## Estructura del proyecto
+
+```text
+manage.py                  Comandos de inicialización, usuarios, capturas y servidor
+config.py                  Configuración de la aplicación
+wsgi.py                    Punto de entrada WSGI
 scrapbot/
-  __init__.py          create_app (fábrica Flask)
-  auth.py              login, bloqueo, expiración de sesión, CSRF
-  web.py, forms.py     rutas del panel y validación de formularios
-  db.py, schema.sql    conexión SQLite, transacciones, esquema
-  audit.py             bitácora de auditoría
+  __init__.py              Creación y configuración de la aplicación Flask
+  web.py                   Rutas del panel y del catálogo
+  auth.py                  Autenticación, roles, sesiones y CSRF
+  forms.py                 Validación de fuentes y parámetros
+  db.py                    Conexiones, inicialización y utilidades SQLite
+  schema.sql               Tablas e índices de la base de datos
+  audit.py                 Registro de auditoría
   engine/
-    http_client.py     cliente HTTP “educado” (pausas, timeout, reintentos, robots.txt)
-    extractor.py       parsing CSS/XPath + hash SHA-256 + validación de selectores
-    normalizer.py      precios CLP, SKU/EAN, stock, desglose de IVA
-    detector.py        variación porcentual contra el precio publicado
-    store.py           escritura transaccional, cola de discrepancias, aprobación
-    pipeline.py        orquestación de una ejecución
-    scheduler.py       ejecuciones intradiarias
-  templates/, static/  interfaz
-demo_site/             tienda de ejemplo
-tests/                 pruebas unitarias, de integración y de aceptación
+    http_client.py         Descargas HTTP, pausas, reintentos y robots.txt
+    extractor.py           Extracción con selectores CSS o XPath
+    normalizer.py          Normalización de precios, IVA e inventario
+    detector.py            Detección de variaciones de precio
+    store.py               Persistencia de productos e incidencias
+    pipeline.py            Orquestación del proceso de captura
+    scheduler.py           Ejecuciones programadas
+  templates/               Plantillas HTML
+  static/                  Estilos y recursos estáticos
+demo_site/                  Catálogos locales de demostración
+tests/                      Pruebas unitarias, de integración y aceptación
+instance/                   Base de datos y clave local generada
 ```
 
-## Trazabilidad con el documento
+## Alcance y próximos pasos
 
-### Tabla 5 — controles y evidencia
+El estado actual es un prototipo funcional con fuentes de demostración locales. Para aplicarlo a tiendas reales, se deben configurar y validar las URL y selectores permitidos para cada fuente. La extracción está orientada a páginas HTML; sitios cuyo catálogo se genera exclusivamente con JavaScript podrían requerir una estrategia de integración adicional.
 
-| Flujo / módulo | Implementación | Evidencia en el sistema |
-|---|---|---|
-| Autenticación y acceso | `auth.py` | Tabla `login_log`; pantalla **Accesos**; bloqueo tras 5 fallos; sesión expira a los 15 min |
-| Configuración de fuentes | `forms.py`, `extractor.validate_selector`, `source_rules` | Reglas versionadas con fecha y usuario; pantalla **Fuentes** |
-| Petición HTTP | `engine/http_client.py` | Tabla `http_log` (URL, código, tiempo, intento, SHA-256) |
-| Parsing de etiquetas | `engine/extractor.py` | Tabla `parse_errors`; `content_hash` SHA-256 por producto |
-| Homologación SKU/EAN | `engine/normalizer.py`, `store.find_product` | Validación GS1 del EAN; descarte de duplicados e identificadores inválidos |
-| IVA 19 % | `normalizer.compute_breakdown` | `price_history`: neto, IVA, final y tasa aplicada |
-| Fluctuaciones anómalas | `engine/detector.py`, `store.apply_products` | Cola `discrepancies` (pendiente) y alerta en el panel |
-| Aprobación manual | `store.resolve_discrepancy` | Decisión, motivo obligatorio, usuario y fecha |
-| Persistencia transaccional | `db.transaction`, `pipeline.py` | `audit_log` `catalog.commit` con el número de productos escritos |
-| Trazabilidad general | `audit.py`, pantallas **Auditoría** y **Ejecuciones** | Historial desde la captura hasta la publicación |
+Como pasos siguientes se pueden considerar pruebas con fuentes reales autorizadas, documentación de selectores por tienda, despliegue en un servidor seguro y evaluación de la calidad y frecuencia de actualización de los datos.
 
-### Tabla 9 — mitigación de riesgos
+## Referencias del proyecto
 
-| Riesgo | Mitigación implementada |
-|---|---|
-| R3 precios erróneos | Variación > 15 % (editable) congela el precio y deriva a revisión |
-| R5 bloqueo de IP | Pausa aleatoria de 2–5 s, `User-Agent` identificado, respeto de `robots.txt` y `Crawl-delay`, sin técnicas de evasión |
-| R1 cambio del DOM | Selectores en la BD, editables y versionados; un selector de ítems sin resultados falla la ejecución sin tocar el catálogo |
-| R4 corrupción en SQLite | WAL, `synchronous=FULL`, escritura del catálogo en una sola transacción con rollback |
-| R2 red / latencia | Timeout de 10 s, 3 reintentos con espera exponencial (1, 2, 4 s) y respeto de `Retry-After` |
-
-## Decisiones de diseño
-
-- **El stock se actualiza aunque el precio quede congelado.** Lo que se retiene es la publicación del precio; mostrar un producto agotado como disponible es otro de los problemas del documento.
-- **Una variación exactamente igual al umbral se publica;** se congela solo si lo supera.
-- **Si se rechaza una variación y la fuente sigue mostrando ese precio,** la siguiente ejecución genera una nueva alerta (el precio publicado no cambió).
-- **`robots.txt` inaccesible (5xx o red) bloquea la captura** por precaución, según RFC 9309. Un 404 equivale a “todo permitido”.
-- **Solo se siguen enlaces dentro del dominio de la fuente;** una redirección a otro dominio se rechaza.
-- **Un precio con varios valores numéricos** (p. ej. precio normal y precio de oferta juntos) se descarta como ambiguo en vez de adivinar.
-- **Las fuentes no se eliminan,** solo se desactivan, para no perder el historial.
-- El formulario exige una pausa mínima de 1 s entre peticiones.
+- Repositorio: [MISMorice/ScrapBot-Proyecto](https://github.com/MISMorice/ScrapBot-Proyecto)
