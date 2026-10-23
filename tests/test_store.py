@@ -45,9 +45,18 @@ class StoreTests(AppTestCase):
         self.assertEqual(self.apply(prod()).created, 1)
         self.assertEqual(self.apply(prod()).unchanged, 1)
         res = self.apply(prod(final=10500))
-        self.assertEqual(res.updated, 1)
-        self.assertEqual(self.scalar("SELECT final_price FROM products"), 10500)
+        self.assertEqual(res.frozen, 1)
+        self.assertEqual(self.scalar("SELECT final_price FROM products"), 10000)
+        self.assertEqual(self.scalar("SELECT new_final_price FROM discrepancies"), 10500)
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM price_history"), 2)   # alta + cambio
+
+    def test_cambio_menor_al_umbral_tambien_requiere_aprobacion(self):
+        self.apply(prod())
+        res = self.apply(prod(final=10100))
+        self.assertEqual(res.frozen, 1)
+        self.assertEqual(self.scalar("SELECT final_price FROM products"), 10000)
+        self.assertEqual(self.scalar("SELECT new_final_price FROM discrepancies"), 10100)
+        self.assertEqual(self.scalar("SELECT status FROM price_history ORDER BY id DESC LIMIT 1"), "held")
 
     def test_variacion_anomala_congela_y_mantiene_precio_publicado(self):
         self.apply(prod())
@@ -104,8 +113,9 @@ class StoreTests(AppTestCase):
         ean = "4006381333931"
         self.apply(prod(sku="A-1", ean=ean))
         res = self.apply(prod(sku=None, ean=ean, final=10200))        # mismo producto identificado solo por EAN
-        self.assertEqual((res.updated, res.created), (1, 0))
+        self.assertEqual((res.frozen, res.created), (1, 0))
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM products"), 1)
+        self.assertEqual(self.scalar("SELECT new_final_price FROM discrepancies"), 10200)
         self.apply(prod(sku="B-2", ean="96385074"))
         res = self.apply(prod(sku="A-1", ean="96385074"))              # SKU de uno y EAN de otro
         self.assertEqual(len(res.conflicts), 1)

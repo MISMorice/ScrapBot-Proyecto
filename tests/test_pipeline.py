@@ -52,18 +52,22 @@ class PipelineTests(AppTestCase):
         self.assertEqual((run["items_unchanged"], run["items_updated"], run["items_created"]), (3, 0, 0))
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM price_history"), 3)
 
-    def test_cambio_menor_se_publica_y_cambio_mayor_se_congela(self):
+    def test_cualquier_cambio_de_precio_requiere_aprobacion(self):
         self.run_once()
         self.prices["A-1"] = 12500      # +5,0 %
         self.prices["A-3"] = 11900      # +100 %
         self.publish()
         run = self.run_once()
-        self.assertEqual((run["items_updated"], run["items_frozen"]), (1, 1))
-        self.assertEqual(self.q("SELECT final_price FROM products WHERE sku='A-1'")[0][0], 12500)
+        self.assertEqual((run["items_updated"], run["items_frozen"]), (0, 2))
+        self.assertEqual(self.q("SELECT final_price FROM products WHERE sku='A-1'")[0][0], 11900)
         a3 = self.q("SELECT * FROM products WHERE sku='A-3'")[0]
         self.assertEqual((a3["final_price"], a3["price_frozen"]), (5950, 1))
-        d = self.q("SELECT * FROM discrepancies")[0]
-        self.assertEqual((d["status"], d["new_final_price"], d["variation_pct"]), ("pending", 11900, 100.0))
+        alerts = self.q("SELECT * FROM discrepancies ORDER BY product_id")
+        self.assertEqual(len(alerts), 2)
+        self.assertEqual((alerts[0]["status"], alerts[0]["new_final_price"], alerts[0]["variation_pct"]),
+                         ("pending", 12500, 5.04))
+        self.assertEqual((alerts[1]["status"], alerts[1]["new_final_price"], alerts[1]["variation_pct"]),
+                         ("pending", 11900, 100.0))
 
     def test_registros_invalidos_y_duplicados_dejan_la_ejecucion_con_observaciones(self):
         cards = self.cards(["A-1", "A-2"]) + [

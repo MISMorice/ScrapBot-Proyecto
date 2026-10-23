@@ -223,6 +223,11 @@ class DiscrepancyWebTests(WebTestCase):
         self.post(client, f"/discrepancies/{self.did}/resolve", {"decision": "approve", "justification": "Nuevo precio de lista confirmado"})
         self.assertEqual(self.scalar("SELECT status FROM discrepancies"), "approved")
         self.assertEqual(self.scalar("SELECT final_price FROM products"), 30000)
+        approved_page = client.get("/discrepancies?status=approved").get_data(as_text=True)
+        self.assertIn("El nuevo precio publicado es $30.000", approved_page)
+        pending_page = client.get("/discrepancies").get_data(as_text=True)
+        self.assertIn("Las alertas resueltas se conservan en el historial", pending_page)
+        self.assertIn('href="/discrepancies?status=all"', pending_page)
         auditoria = client.get("/audit?action=discrepancy").get_data(as_text=True)
         self.assertIn("ana", auditoria)
         self.assertIn("Nuevo precio de lista confirmado", auditoria)
@@ -244,13 +249,13 @@ class DiscrepancyWebTests(WebTestCase):
 class AdminTests(WebTestCase):
     def test_parametros_validados_y_auditados(self):
         client = self.login()
-        bad = self.post(client, "/settings", {"vat_rate": "19", "variation_threshold": "0", "schedule_times": "25:00"})
+        bad = self.post(client, "/settings", {"vat_rate": "19", "variation_threshold": "0", "scheduler_interval_minutes": "7"})
         self.assertIn("umbral debe estar", bad.get_data(as_text=True))
-        self.assertIn("Hora inválida", bad.get_data(as_text=True))
-        ok = self.post(client, "/settings", {"vat_rate": "19", "variation_threshold": "10", "schedule_times": "07:00, 19:00", "scheduler_enabled": "on"})
+        self.assertIn("intervalo válido", bad.get_data(as_text=True))
+        ok = self.post(client, "/settings", {"vat_rate": "19", "variation_threshold": "10", "scheduler_interval_minutes": "5", "scheduler_enabled": "on"})
         self.assertEqual(ok.status_code, 302)
         self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='variation_threshold'"), "10.0")
-        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='schedule_times'"), "07:00,19:00")
+        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='scheduler_interval_minutes'"), "5")
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM audit_log WHERE action='settings.update'"), 1)
 
     def test_crear_usuario_valida_contrasena(self):

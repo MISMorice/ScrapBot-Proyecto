@@ -46,7 +46,7 @@ def init_db(conn: sqlite3.Connection, config: dict | None = None) -> None:
     defaults = {
         "vat_rate": str(cfg.get("DEFAULT_VAT_RATE", 19)),
         "variation_threshold": str(cfg.get("DEFAULT_VARIATION_THRESHOLD", 15)),
-        "schedule_times": cfg.get("DEFAULT_SCHEDULE", "00:00,06:00,12:00,18:00"),
+        "scheduler_interval_minutes": str(cfg.get("DEFAULT_SCHEDULER_INTERVAL_MINUTES", 5)),
         "scheduler_enabled": "1",
         "scheduler_last_slot": "",
     }

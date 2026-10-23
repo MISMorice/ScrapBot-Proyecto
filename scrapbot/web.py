@@ -15,7 +15,7 @@ from . import audit
 from .auth import admin_required, hash_password, login_required, validate_password
 from .db import get_setting, set_setting, transaction
 from .engine.pipeline import RunInProgress
-from .engine.scheduler import parse_schedule
+from .engine.scheduler import VALID_INTERVALS
 from .engine.store import resolve_discrepancy
 from .forms import validate_settings_form, validate_source_form
 from .util import get_tz, now_str, to_str, utcnow
@@ -147,16 +147,18 @@ def dashboard():
                      "ORDER BY r.id DESC LIMIT 8").fetchall()
     tz = get_tz(current_app.config["TIMEZONE"])
     now = datetime.now(tz)
-    upcoming = []
+    next_run = None
     if get_setting(d, "scheduler_enabled", "1") == "1":
-        try:
-            times = parse_schedule(get_setting(d, "schedule_times", ""))
-            slots = sorted(datetime(day.year, day.month, day.day, int(t[:2]), int(t[3:]), tzinfo=tz)
-                           for day in (now.date(), now.date() + timedelta(days=1)) for t in times)
-            upcoming = [s.strftime("%d-%m %H:%M") for s in slots if s > now][:4]
-        except ValueError:
-            pass
-    return render_template("dashboard.html", kpi=kpi, metrics=metrics, runs=runs, upcoming=upcoming)
+        interval = int(get_setting(d, "scheduler_interval_minutes", "5"))
+        if interval not in VALID_INTERVALS:
+            raise ValueError(f"Intervalo de programación inválido: {interval}")
+        next_minute = (now.minute // interval + 1) * interval
+        next_run = now.replace(second=0, microsecond=0)
+        if next_minute >= 60:
+            next_run = next_run.replace(minute=0) + timedelta(hours=1)
+        else:
+            next_run = next_run.replace(minute=next_minute)
+    return render_template("dashboard.html", kpi=kpi, metrics=metrics, runs=runs, next_run=next_run)
 
 
 # --- Fuentes -------------------------------------------------------------------
@@ -426,11 +428,13 @@ def access_log():
 @admin_required
 def settings():
     d = g.db
-    values = {k: get_setting(d, k) for k in ("vat_rate", "variation_threshold", "schedule_times", "scheduler_enabled")}
+    values = {k: get_setting(d, k) for k in
+              ("vat_rate", "variation_threshold", "scheduler_interval_minutes", "scheduler_enabled")}
     errors = {}
     if request.method == "POST":
         data, errors = validate_settings_form(request.form)
-        values = {k: request.form.get(k, "") for k in ("vat_rate", "variation_threshold", "schedule_times")}
+        values = {k: request.form.get(k, "") for k in
+                  ("vat_rate", "variation_threshold", "scheduler_interval_minutes")}
         values["scheduler_enabled"] = "1" if request.form.get("scheduler_enabled") else "0"
         if not errors:
             with transaction(d):

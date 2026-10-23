@@ -90,7 +90,7 @@ def apply_products(conn: sqlite3.Connection, *, run_id: int, source_id: int,
         sku = existing["sku"] or p.sku
         ean = existing["ean"] or p.ean
 
-        if decision.action == "freeze":
+        if p.final_price != existing["final_price"]:
             hist_id = _history(conn, pid, run_id, p.net_price, p.vat_amount, p.final_price, vat_rate,
                                new_stock, "held", p.content_hash, now)
             if pending:

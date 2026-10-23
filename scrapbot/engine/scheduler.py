@@ -1,24 +1,15 @@
-"""Programador de ejecuciones intradiarias (OE3): por defecto 00:00, 06:00, 12:00 y 18:00."""
+"""Programador de capturas automáticas por intervalo configurable."""
 from __future__ import annotations
 
 import logging
-import re
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from ..db import connect, get_setting, set_setting, transaction
 from ..util import get_tz
 
 log = logging.getLogger("scrapbot.scheduler")
-_TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
-
-
-def parse_schedule(value: str) -> list[str]:
-    times = sorted({t.strip() for t in (value or "").split(",") if t.strip()})
-    for t in times:
-        if not _TIME_RE.match(t):
-            raise ValueError(f"Hora inválida: {t!r} (use HH:MM)")
-    return times
+VALID_INTERVALS = (5, 15, 60)
 
 
 class IntradayScheduler(threading.Thread):
@@ -39,15 +30,10 @@ class IntradayScheduler(threading.Thread):
             except Exception:
                 log.exception("Error en el ciclo del programador")
 
-    def latest_slot(self, now: datetime, times: list[str]) -> datetime | None:
-        """Último horario programado que ya ocurrió (hoy o ayer)."""
-        candidates = []
-        for day in (now.date() - timedelta(days=1), now.date()):
-            for t in times:
-                hh, mm = map(int, t.split(":"))
-                candidates.append(datetime(day.year, day.month, day.day, hh, mm, tzinfo=self.tz))
-        past = [c for c in candidates if c <= now]
-        return max(past) if past else None
+    @staticmethod
+    def latest_slot(now: datetime, interval_minutes: int) -> datetime:
+        minute = now.minute - now.minute % interval_minutes
+        return now.replace(minute=minute, second=0, microsecond=0)
 
     def check(self, now: datetime | None = None) -> list[int]:
         """Dispara las fuentes activas si corresponde. Devuelve los ids de ejecución creados."""
@@ -56,13 +42,13 @@ class IntradayScheduler(threading.Thread):
         try:
             if get_setting(conn, "scheduler_enabled", "1") != "1":
                 return []
-            times = parse_schedule(get_setting(conn, "schedule_times", self.config["DEFAULT_SCHEDULE"]))
-            slot = self.latest_slot(now, times)
-            if slot is None:
-                return []
-            grace = timedelta(minutes=self.config.get("SCHEDULER_GRACE_MINUTES", 30))
-            if now - slot > grace:
-                return []
+            interval = int(get_setting(
+                conn, "scheduler_interval_minutes",
+                str(self.config.get("DEFAULT_SCHEDULER_INTERVAL_MINUTES", 5)),
+            ))
+            if interval not in VALID_INTERVALS:
+                raise ValueError(f"Intervalo de programación inválido: {interval}")
+            slot = self.latest_slot(now, interval)
             slot_key = slot.strftime("%Y-%m-%d %H:%M")
             # Reclamo atómico del horario: evita doble disparo con varios procesos.
             with transaction(conn):

@@ -4,7 +4,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from .engine.extractor import SelectorError, validate_selector
-from .engine.scheduler import parse_schedule
+from .engine.scheduler import VALID_INTERVALS
 
 SELECTOR_FIELDS = ("sku", "ean", "name", "price", "stock")
 
@@ -91,11 +91,11 @@ def validate_settings_form(form) -> tuple[dict, dict]:
     except ValueError:
         errors["variation_threshold"] = "El umbral debe estar entre 1 y 100 %"
     try:
-        times = parse_schedule(form.get("schedule_times", ""))
-        if not 1 <= len(times) <= 24:
-            raise ValueError("Defina entre 1 y 24 horarios")
-        data["schedule_times"] = ",".join(times)
-    except ValueError as exc:
-        errors["schedule_times"] = str(exc)
+        interval = int(form.get("scheduler_interval_minutes", ""))
+        if interval not in VALID_INTERVALS:
+            raise ValueError
+        data["scheduler_interval_minutes"] = str(interval)
+    except ValueError:
+        errors["scheduler_interval_minutes"] = "Seleccione un intervalo válido (5, 15 o 60 minutos)"
     data["scheduler_enabled"] = "1" if form.get("scheduler_enabled") else "0"
     return data, errors

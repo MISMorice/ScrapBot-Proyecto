@@ -1,6 +1,6 @@
 """Configuración de ScrapBot.
 
-Los valores de negocio (IVA, umbral de variación, horarios) son solo los
+Los valores de negocio (IVA, umbral de variación, intervalo automático) son solo los
 valores *iniciales*: una vez creada la base de datos se editan desde el panel
 (Parámetros) y quedan guardados en la tabla `settings`.
 """
@@ -50,7 +50,6 @@ class Config:
     # --- Valores iniciales de negocio ------------------------------------
     DEFAULT_VAT_RATE = 19                      # IVA Chile (%)
     DEFAULT_VARIATION_THRESHOLD = 15           # % (R3)
-    DEFAULT_SCHEDULE = "00:00,06:00,12:00,18:00"  # 4 ejecuciones intradiarias (OE3)
+    DEFAULT_SCHEDULER_INTERVAL_MINUTES = 5
     SCHEDULER_ENABLED = _env_bool("SCRAPBOT_SCHEDULER", True)
     SCHEDULER_TICK_SECONDS = 20
-    SCHEDULER_GRACE_MINUTES = 30

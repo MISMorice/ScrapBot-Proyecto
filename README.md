@@ -15,8 +15,9 @@ Facilitar la consulta centralizada de precios y apoyar su seguimiento mediante c
 - Registro de fuentes y configuración de selectores CSS o XPath.
 - Extracción de páginas HTML, incluyendo navegación por paginación.
 - Normalización de SKU/EAN, nombre, precio, IVA y disponibilidad.
-- Historial de precios y revisión de variaciones anómalas.
+- Historial de precios y aprobación manual de cada cambio antes de publicarlo.
 - Catálogo público con búsqueda, filtros y enlaces a las fuentes.
+- Capturas automáticas cada 5 minutos por defecto, mientras el servidor está encendido.
 - Registro de ejecuciones, errores de descarga y errores de extracción.
 - Tiendas locales de demostración: Ferretería, Electro y Jardín.
 
@@ -47,6 +48,8 @@ Presentación muestra el resultado en el panel y el catálogo
 ```
 
 La separación es lógica y facilita entender las responsabilidades. Actualmente algunas rutas de `web.py` consultan la base de datos directamente para construir sus vistas; por eso las capas están diferenciadas, pero no completamente aisladas mediante una capa de servicios o repositorios.
+
+Cada cambio de precio queda pendiente de aprobación, incluso si es menor que el umbral configurado. Mientras está pendiente, el catálogo conserva el último precio publicado; al aprobarlo, se publica el nuevo precio. Los cambios de disponibilidad y stock se procesan por separado.
 
 ## Requisitos
 
@@ -129,7 +132,7 @@ Después de una captura, consulta el [catálogo consolidado](http://127.0.0.1:50
 http://127.0.0.1:5001/_demo/precio?sku=DEMO-003&valor=39990
 ```
 
-Luego revisa las alertas de precio en el panel y aprueba o rechaza el cambio con una justificación.
+Luego revisa las alertas de precio en el panel y aprueba o rechaza el cambio con una justificación. Todo cambio de precio capturado aparece en esta lista para revisión.
 
 ### Capturar una fuente específica
 
@@ -140,6 +143,12 @@ Cada fuente tiene un identificador numérico, visible en la administración de f
 ```
 
 Reemplaza `ID` por el identificador de la fuente. Para capturar todas las fuentes activas, usa `--all`.
+
+## Capturas automáticas
+
+Al iniciar el panel con `manage.py serve`, ScrapBot revisa las fuentes activas automáticamente cada 5 minutos. Un administrador puede cambiar la frecuencia a 5, 15 o 60 minutos, o desactivar las capturas automáticas, desde **Parámetros**. El proceso del panel debe permanecer encendido para que el programador funcione.
+
+Cuando una captura detecta un cambio de precio, crea o actualiza una alerta pendiente. El catálogo conserva el precio publicado hasta que un usuario apruebe el cambio. La ejecución puntual con `manage.py run --all` sigue disponible para pruebas manuales.
 
 ## Pruebas
 
