@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, pager %}
+{% block title %}Alertas de precio{% endblock %}
+{% block content %}
+<section class="catalog-heading">
+  <div>
+    <h1>Alertas de precio</h1>
+    {% if alert_mode == 'auto' %}
+    <p class="lead">El bot publica cada precio en cuanto lo captura, sin esperar aprobación. Cuando la variación supera el umbral, de una vez o acumulada en varios días, se registra aquí y aparece un aviso en pantalla.</p>
+    {% else %}
+    <p class="lead">El modo de alertas está en «revisión manual»: las variaciones sobre el umbral quedan retenidas en <a href="{{ url_for('web.discrepancies') }}">Revisiones pendientes</a>. Aquí solo se ven las alertas generadas mientras el modo era automático.</p>
+    {% endif %}
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="{{ url_for('web.export_price_changes') }}">Exportar auditoría de precios</a>
+    {% if rows and show == 'unseen' %}
+    <form method="post" action="{{ url_for('web.alerts_ack_all') }}" class="inline">{{ csrf() }}<button class="btn" type="submit">Marcar todas como revisadas</button></form>
+    {% endif %}
+  </div>
+</section>
+
+{% if pending_reviews %}<div class="flash warning">Hay {{ pending_reviews }} variación(es) retenidas de antes esperando decisión: <a href="{{ url_for('web.discrepancies') }}">revisarlas</a>.</div>{% endif %}
+
+<form class="filters" method="get">
+  <div><label for="show">Mostrar</label><select id="show" name="show">
+    <option value="unseen" {% if show == 'unseen' %}selected{% endif %}>Sin revisar</option>
+    <option value="all" {% if show == 'all' %}selected{% endif %}>Todas</option></select></div>
+  <button class="btn" type="submit">Filtrar</button>
+</form>
+
+<div class="table-wrap">
+{% if rows %}
+<table>
+  <thead><tr><th>Detectada</th><th>Producto</th><th>Tipo</th><th class="num">Referencia</th><th class="num">Nuevo (publicado)</th><th class="num">Variación</th><th>Estado</th></tr></thead>
+  <tbody>{% for a in rows %}
+    <tr class="alert-row {{ 'unseen' if not a.seen_at else '' }}">
+      <td>{{ a.created_at|dt }}{% if a.run_id %}<div class="muted small"><a href="{{ url_for('web.run_detail', run_id=a.run_id) }}">ejecución #{{ a.run_id }}</a></div>{% endif %}</td>
+      <td><a href="{{ url_for('web.product_detail', product_id=a.product_id) }}">{{ a.name }}</a>
+        <div class="muted small">{{ a.source_name }} · {{ a.sku or a.ean }}</div></td>
+      <td>{% if a.kind == 'salto' %}<span class="chip warn">Cambio brusco</span>{% else %}<span class="chip info">Acumulada</span>{% endif %}
+        <div class="muted small">umbral {{ '%g'|format(a.threshold_pct) }} %</div></td>
+      <td class="num">{{ a.reference_price|clp }}</td>
+      <td class="num"><b>{{ a.new_final_price|clp }}</b></td>
+      <td class="num {{ 'pct-up' if a.new_final_price > a.reference_price else 'pct-down' }}">{{ '+' if a.new_final_price > a.reference_price else '−' }}{{ a.variation_pct }} %</td>
+      <td>{% if a.seen_at %}<span class="chip off">Revisada</span><div class="muted small">{{ a.seen_by }} · {{ a.seen_at|dt }}</div>
+          {% else %}<form method="post" action="{{ url_for('web.alert_ack', alert_id=a.id) }}">{{ csrf() }}<button class="btn small secondary" type="submit">Marcar revisada</button></form>{% endif %}</td>
+    </tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}
+  <div class="empty">{% if show == 'unseen' %}No hay alertas sin revisar.{% else %}Todavía no se han generado alertas.{% endif %}</div>
+{% endif %}
+</div>
+{{ pager(pg) }}
+<p class="muted small">«Referencia» es el precio publicado antes del cambio (cambio brusco) o el precio de inicio de la ventana de comparación (acumulada).</p>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import hist_chip, disc_chip, csrf, err %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+<h1>{{ p.name }}</h1>
+<p class="lead"><a href="{{ url_for('web.products') }}">Productos</a> · {{ p.source_name }}</p>
+<div class="panel"><dl class="kv">
+  <dt>SKU</dt><dd class="mono">{{ p.sku or '—' }}</dd>
+  <dt>EAN</dt><dd class="mono">{{ p.ean or '—' }}</dd>
+  <dt>Precio neto</dt><dd>{{ p.net_price|clp }}</dd>
+  <dt>IVA</dt><dd>{{ p.vat_amount|clp }}</dd>
+  <dt>Precio final publicado</dt><dd><b>{{ p.final_price|clp }}</b>{% if p.price_frozen %} <span class="chip warn">Hay una variación en revisión</span>{% endif %}
+    {% if p.manual_override %} <span class="chip info">Fijado manualmente</span>{% endif %}
+    {% if p.missing_since %} <span class="chip off">Retirado de la tienda desde {{ p.missing_since|dt }}</span>{% endif %}</dd>
+  <dt>Stock</dt><dd>{% if p.available == 0 %}Agotado{% elif p.stock is not none %}{{ p.stock }} unidades{% elif p.available == 1 %}Disponible{% else %}Sin información{% endif %}</dd>
+  <dt>Última captura</dt><dd>{{ p.last_seen_at|dt }}</dd>
+  <dt>Hash del contenido</dt><dd class="mono">{{ p.content_hash or '—' }}</dd>
+</dl></div>
+
+{% if is_admin %}
+<section class="panel edit-panel" aria-labelledby="edit-title">
+  <h2 id="edit-title">Editar precio y stock</h2>
+  <p class="muted">El precio se ingresa con IVA incluido; el neto y el IVA se recalculan con la tasa vigente ({{ vat_rate }} %). El cambio queda en el historial y en la auditoría con su motivo.</p>
+  <form method="post" class="stack" action="{{ url_for('web.product_edit', product_id=p.id) }}">
+    {{ csrf() }}
+    <div class="grid3">
+      <div><label for="final_price">Precio final (CLP)</label>
+        <input type="text" inputmode="numeric" id="final_price" name="final_price" value="{{ form.final_price }}" required>{{ err(errors, 'final_price') }}</div>
+      <div><label for="stock">Stock (unidades) <span class="hint">Vacío = sin información</span></label>
+        <input type="number" min="0" step="1" id="stock" name="stock" value="{{ form.stock }}">{{ err(errors, 'stock') }}</div>
+      <div><label for="justification">Motivo del cambio</label>
+        <input type="text" id="justification" name="justification" value="{{ form.justification }}" required minlength="5" placeholder="Ej.: precio de lista confirmado con proveedor">{{ err(errors, 'justification') }}</div>
+    </div>
+    <label class="check"><input type="checkbox" name="keep_manual" {% if form.keep_manual %}checked{% endif %}> Mantener este precio y stock aunque el bot capture otros valores</label>
+    <p class="actions"><button class="btn" type="submit">Guardar cambios</button></p>
+  </form>
+  {% if p.manual_override %}
+  <form method="post" action="{{ url_for('web.product_release', product_id=p.id) }}" class="actions">
+    {{ csrf() }}<span class="muted">El bot no está actualizando este producto.</span>
+    <button class="btn secondary small" type="submit">Volver a seguir el precio de la tienda</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<h2>Historial de precios</h2>
+<div class="table-wrap">
+{% if history %}
+<table>
+  <thead><tr><th>Captura</th><th>Origen</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Final</th><th class="num">Stock</th><th>Estado</th></tr></thead>
+  <tbody>{% for h in history %}
+    <tr><td>{{ h.captured_at|dt }}</td>
+      <td>{% if h.changed_by %}Edición de <b>{{ h.changed_by }}</b><div class="muted small">{{ h.note }}</div>
+          {% elif h.run_id %}<a href="{{ url_for('web.run_detail', run_id=h.run_id) }}">Bot · ejecución #{{ h.run_id }}</a>{% else %}—{% endif %}</td>
+      <td class="num">{{ h.net_price|clp }}</td><td class="num">{{ h.vat_amount|clp }} <span class="muted">({{ '%g'|format(h.vat_rate) }}%)</span></td>
+      <td class="num">{{ h.final_price|clp }}</td><td class="num">{{ h.stock if h.stock is not none else '—' }}</td><td>{{ hist_chip(h.status) }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+{% else %}<div class="empty">Sin historial.</div>{% endif %}
+</div>
+
+{% if alerts %}
+<h2>Alertas automáticas</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Detectada</th><th>Tipo</th><th class="num">Referencia</th><th class="num">Publicado</th><th class="num">Variación</th><th>Estado</th></tr></thead>
+  <tbody>{% for a in alerts %}
+    <tr><td>{{ a.created_at|dt }}</td><td>{{ 'Cambio brusco' if a.kind == 'salto' else 'Acumulada' }}</td>
+      <td class="num">{{ a.reference_price|clp }}</td><td class="num">{{ a.new_final_price|clp }}</td><td class="num">{{ a.variation_pct }} %</td>
+      <td>{{ ('Revisada por ' ~ a.seen_by) if a.seen_at else 'Sin revisar' }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+{% if discs %}
+<h2>Variaciones anómalas</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Detectada</th><th class="num">Publicado</th><th class="num">Capturado</th><th class="num">Variación</th><th>Estado</th><th>Resuelta por</th><th>Motivo</th></tr></thead>
+  <tbody>{% for d in discs %}
+    <tr><td>{{ d.created_at|dt }}</td><td class="num">{{ d.old_final_price|clp }}</td><td class="num">{{ d.new_final_price|clp }}</td>
+      <td class="num">{{ d.variation_pct }} %</td><td>{{ disc_chip(d.status) }}</td><td>{{ d.resolved_by or '—' }}</td><td>{{ d.justification or '—' }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

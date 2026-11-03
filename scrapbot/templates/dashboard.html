@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import run_chip %}
+{% block title %}Panel{% endblock %}
+{% block content %}
+<h1>Panel</h1>
+<p class="lead">Estado del catálogo y de las últimas sincronizaciones.</p>
+
+<div class="stats">
+  <div class="stat"><b>{{ kpi.products }}</b><span>productos en el catálogo</span></div>
+  <div class="stat"><b>{{ kpi.sources }}</b><span>fuentes activas</span></div>
+  <div class="stat {% if kpi.alerts %}alert{% endif %}"><b>{{ kpi.alerts }}</b>
+    <span><a href="{{ url_for('web.alerts') }}">alertas de precio sin revisar</a> · {{ kpi.alerts_today }} en 24 h</span></div>
+  {% if kpi.frozen %}<div class="stat alert"><b>{{ kpi.frozen }}</b><span><a href="{{ url_for('web.discrepancies') }}">variaciones retenidas esperando revisión</a></span></div>{% endif %}
+</div>
+
+<div class="panel">
+  <b>Automatización:</b>
+  {% if not automation.enabled %}<span class="chip off">Desactivada</span>
+  {% elif automation.mode == 'interval' %}<span class="chip ok">Captura cada {{ automation.interval }} min</span>
+  {% else %}<span class="chip ok">Horarios {{ automation.times }}</span>{% endif %}
+  · Variaciones sobre el umbral: {% if automation.alert_mode == 'auto' %}<span class="chip info">se publican y se alertan al instante</span>{% else %}<span class="chip warn">quedan retenidas para revisión</span>{% endif %}
+  {% if upcoming %}<div class="muted small">Próximas capturas: {{ upcoming|join(' · ') }}</div>{% endif %}
+</div>
+
+{% if recent_alerts %}
+<h2>Últimas alertas</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Detectada</th><th>Producto</th><th>Tipo</th><th class="num">Antes</th><th class="num">Ahora</th><th class="num">Variación</th></tr></thead>
+  <tbody>{% for a in recent_alerts %}
+    <tr class="alert-row {{ 'unseen' if not a.seen_at else '' }}"><td>{{ a.created_at|dt }}</td>
+      <td><a href="{{ url_for('web.product_detail', product_id=a.product_id) }}">{{ a.name }}</a> <span class="muted small">{{ a.source_name }}</span></td>
+      <td>{{ 'Cambio brusco' if a.kind == 'salto' else 'Acumulada' }}</td><td class="num">{{ a.reference_price|clp }}</td>
+      <td class="num">{{ a.new_final_price|clp }}</td><td class="num">{{ a.variation_pct }} %</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+<h2>Indicadores de los últimos 7 días</h2>
+<div class="stats">
+  <div class="stat"><b>{{ metrics.runs_per_day }}</b><span>ejecuciones por día (OE3)</span></div>
+  <div class="stat"><b>{{ metrics.secs_per_100 if metrics.secs_per_100 is not none else '—' }}{% if metrics.secs_per_100 is not none %} s{% endif %}</b><span>tiempo por cada 100 productos (OE1)</span></div>
+  <div class="stat"><b>{{ metrics.error_rate if metrics.error_rate is not none else '—' }}{% if metrics.error_rate is not none %} %{% endif %}</b><span>registros descartados por error (OE2)</span></div>
+</div>
+
+<h2>Últimas ejecuciones</h2>
+<div class="table-wrap">
+{% if runs %}
+<table>
+  <thead><tr><th>#</th><th>Fuente</th><th>Inicio</th><th>Estado</th><th class="num">Productos</th><th class="num">Alertas</th><th class="num">Duración</th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr><td><a href="{{ url_for('web.run_detail', run_id=r.id) }}">{{ r.id }}</a></td><td>{{ r.source_name }}</td><td>{{ r.started_at|dt }}</td>
+        <td>{{ run_chip(r.status) }}</td><td class="num">{{ r.items_found }}</td><td class="num">{{ r.items_alerted }}{% if r.items_frozen %} <span class="muted">({{ r.items_frozen }} retenidos)</span>{% endif %}</td>
+        <td class="num">{{ r.duration_seconds ~ ' s' if r.duration_seconds is not none else '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<div class="empty">Aún no hay ejecuciones. Cree una fuente y use «Ejecutar ahora».</div>{% endif %}
+</div>
+{% endblock %}

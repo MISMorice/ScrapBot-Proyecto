@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import csrf, err %}
+{% block title %}Parámetros{% endblock %}
+{% block content %}
+<h1>Parámetros</h1>
+<p class="lead">Reglas de negocio aplicadas en cada ejecución. Los cambios rigen desde la próxima captura.</p>
+<form method="post" class="stack panel">
+  {{ csrf() }}
+  <div class="grid2">
+    <div><label for="vat_rate">IVA (%)</label><input type="number" step="0.1" id="vat_rate" name="vat_rate" value="{{ values.vat_rate }}">{{ err(errors, 'vat_rate') }}</div>
+    <div><label for="variation_threshold">Umbral de variación de precio (%) <span class="hint">Una variación mayor genera una alerta.</span></label>
+      <input type="number" step="0.5" id="variation_threshold" name="variation_threshold" value="{{ values.variation_threshold }}">{{ err(errors, 'variation_threshold') }}</div>
+  </div>
+  <h2>Automatización del bot</h2>
+  <label class="check"><input type="checkbox" name="scheduler_enabled" {% if values.scheduler_enabled == '1' %}checked{% endif %}> Ejecuciones automáticas activadas</label>
+  <div class="grid2">
+    <div><label for="schedule_mode">Frecuencia</label>
+      <select id="schedule_mode" name="schedule_mode">
+        <option value="interval" {% if values.schedule_mode == 'interval' %}selected{% endif %}>Cada N minutos (casi en tiempo real)</option>
+        <option value="times" {% if values.schedule_mode == 'times' %}selected{% endif %}>En horarios fijos</option>
+      </select>{{ err(errors, 'schedule_mode') }}</div>
+    <div><label for="interval_minutes">Intervalo (minutos) <span class="hint">Entre 5 y 1440. Se usa con «Cada N minutos».</span></label>
+      <input type="number" min="5" max="1440" id="interval_minutes" name="interval_minutes" value="{{ values.interval_minutes }}">{{ err(errors, 'interval_minutes') }}</div>
+  </div>
+  <label for="schedule_times">Horarios fijos <span class="hint">Formato HH:MM separados por coma (hora de Chile). Se usan con «En horarios fijos».</span></label>
+  <input type="text" id="schedule_times" name="schedule_times" value="{{ values.schedule_times }}">{{ err(errors, 'schedule_times') }}
+
+  <h2>Alertas de precio</h2>
+  <div class="grid2">
+    <div><label for="alert_mode">Cuando una variación supera el umbral</label>
+      <select id="alert_mode" name="alert_mode">
+        <option value="auto" {% if values.alert_mode == 'auto' %}selected{% endif %}>Publicar al instante y alertar (sin intervención)</option>
+        <option value="review" {% if values.alert_mode == 'review' %}selected{% endif %}>Retener hasta revisión manual</option>
+      </select>{{ err(errors, 'alert_mode') }}</div>
+    <div><label for="drift_window_days">Ventana de variación acumulada (días) <span class="hint">Detecta subidas graduales que sumadas superan el umbral. 0 la desactiva.</span></label>
+      <input type="number" min="0" max="90" id="drift_window_days" name="drift_window_days" value="{{ values.drift_window_days }}">{{ err(errors, 'drift_window_days') }}</div>
+  </div>
+  <p><button class="btn" type="submit">Guardar parámetros</button></p>
+</form>
+{% endblock %}

@@ -1,0 +1,62 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "ScrapBot: tienda demo local",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-m",
+				"demo_site.app"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "ScrapBot: registrar fuente demo",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [
+				"manage.py",
+				"seed-demo"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "ScrapBot: capturar catálogo demo",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [
+				"manage.py",
+				"run",
+				"--all"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "ScrapBot: panel local",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [
+				"manage.py",
+				"serve"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "ScrapBot: tiendas de prueba actuales",
+			"type": "shell",
+			"command": ".\\.venv\\Scripts\\python.exe",
+			"args": [
+				"-B",
+				"-m",
+				"demo_site.app"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
