@@ -1,6 +1,7 @@
 /* Aviso en vivo de alertas de precio.
- * El bot captura en segundo plano; esta página consulta cada 20 s si hay alertas
- * nuevas y las muestra como aviso, sin recargar ni depender de que alguien mire. */
+ * El bot captura en segundo plano; esta página consulta cada pocos segundos
+ * (data-poll-ms, 5 s por defecto) si hay alertas nuevas y las muestra como aviso,
+ * sin recargar ni depender de que alguien mire. */
 (function () {
   "use strict";
   var area = document.querySelector(".toast-area");
@@ -8,6 +9,7 @@
   var url = area.getAttribute("data-alerts-url");
   var page = area.getAttribute("data-alerts-page");
   var lastId = parseInt(area.getAttribute("data-last-alert") || "0", 10);
+  var pollMs = parseInt(area.getAttribute("data-poll-ms") || "5000", 10) || 5000;
   var badge = document.querySelector("[data-alert-badge]");
 
   function text(tag, value) { var el = document.createElement(tag); el.textContent = value; return el; }
@@ -51,5 +53,5 @@
       })
       .catch(function () { /* sin conexión: se reintenta en el próximo ciclo */ });
   }
-  setInterval(poll, 20000);
+  setInterval(poll, pollMs);
 })();

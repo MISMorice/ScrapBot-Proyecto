@@ -1,3 +1,5 @@
+Este proyecto pertenece a **MISMorice**.
+
 # ScrapBot
 
 ScrapBot es un prototipo web para recopilar y comparar precios de catálogos en línea. Permite registrar fuentes autorizadas, extraer productos, normalizar sus precios y mostrar las ofertas en un catálogo consolidado. También registra variaciones importantes para que una persona administradora las revise antes de aplicar el nuevo precio.
@@ -10,9 +12,9 @@ Facilitar la consulta centralizada de precios y apoyar su seguimiento mediante c
 
 ## Funcionalidades principales
 
-- Inicio de sesión con selector **Usuario / Administrador**.
+- Inicio de sesión **solo para administradores**.
 - **Edición manual de precio y stock** para administradores, con motivo obligatorio, historial y auditoría.
-- **Automatización sin intervención:** captura cada N minutos (15 por defecto); las variaciones se publican al instante y generan alertas, con aviso en pantalla.
+- **Automatización sin intervención:** captura cada N minutos (5 por defecto, mínimo 1); las variaciones se publican al instante, generan alertas y quedan en el historial con su precio anterior, con aviso en pantalla cada 5 segundos.
 - Alertas por **cambio brusco** y por **variación acumulada** (subidas graduales que suman más que el umbral).
 - **Exportación de la auditoría** de cambios de precio y de la bitácora completa (CSV que abre en Excel).
 - Creación de usuarios desde el panel (para administradores) o desde la línea de comandos.
@@ -68,7 +70,7 @@ Abre PowerShell en la carpeta raíz del proyecto (donde están `manage.py` y `re
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe manage.py init-db
-.\.venv\Scripts\python.exe manage.py create-user profesor --role admin
+.\.venv\Scripts\python.exe manage.py create-user profesor
 ```
 
 El último comando solicita una contraseña de forma interactiva. Debe tener al menos 10 caracteres y cumplir las reglas de contraseña de la aplicación. El nombre `profesor` es solo un ejemplo: puedes reemplazarlo por el usuario que necesites. Si el usuario ya existe, elige otro nombre.
@@ -91,7 +93,7 @@ Desde la raíz del proyecto:
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python manage.py init-db
-.venv/bin/python manage.py create-user profesor --role admin
+.venv/bin/python manage.py create-user profesor
 .venv/bin/python manage.py serve
 ```
 
@@ -99,18 +101,13 @@ python3 -m venv .venv
 
 - **Panel privado:** [http://127.0.0.1:5000/](http://127.0.0.1:5000/). Requiere iniciar sesión. Desde el panel se administran fuentes, productos, ejecuciones, alertas, usuarios y parámetros.
 - **Catálogo público:** [http://127.0.0.1:5000/catalogo](http://127.0.0.1:5000/catalogo). No requiere iniciar sesión. Muestra ofertas activas y permite buscar y filtrar.
-- **Usuarios:** `/users`. Solo disponible para administradores. Permite crear usuarios y activar, desactivar o desbloquear cuentas.
+- **Usuarios:** `/users`. Solo disponible para administradores. Permite crear cuentas de administrador y activar, desactivar o desbloquear cuentas.
 
-### Tipos de acceso
+### Acceso
 
-En la pantalla de inicio de sesión se elige **Usuario** o **Administrador**:
+El panel tiene un único tipo de acceso: **Administrador**. Solo las cuentas con rol `admin` pueden ingresar y tienen acceso a todo: consulta, alertas, capturas, exportaciones, **edición de precio y stock**, fuentes, usuarios y parámetros.
 
-| Acceso | Cuentas que pueden usarlo | Qué permite |
-| --- | --- | --- |
-| Usuario | Cualquier cuenta activa | Consultar productos, catálogo, ejecuciones y auditoría; ver y marcar alertas; lanzar capturas; exportar. |
-| Administrador | Solo cuentas con rol `admin` | Todo lo anterior, más **editar precio y stock**, fuentes, usuarios y parámetros. |
-
-Una cuenta `analyst` que elige «Administrador» es rechazada. Una cuenta `admin` que elige «Usuario» entra sin permisos de edición.
+Las cuentas `analyst` creadas con versiones anteriores se conservan en la base de datos y se ven en `/users`, pero su ingreso es rechazado con el mensaje «Esta cuenta no tiene permisos de administrador» (queda registrado en Accesos y en Auditoría). Las cuentas nuevas se crean siempre como administrador.
 
 ### Editar precio y stock
 
@@ -124,16 +121,20 @@ Con acceso de administrador, en **Productos → Editar** (o en el detalle de un 
 
 En **Parámetros → Automatización del bot**:
 
-- **Frecuencia:** cada N minutos (5 a 1440; 15 por defecto) o en horarios fijos.
+- **Frecuencia:** cada N minutos (1 a 1440; 5 por defecto) o en horarios fijos. Una base creada antes que nunca cambió el valor de 15 minutos pasa automáticamente a 5; un valor elegido en Parámetros se respeta.
 - **Alertas:** por defecto, toda variación se **publica al instante** y, si supera el umbral (15 %), se genera una alerta sin que nadie tenga que aprobar nada. Opcionalmente se puede volver al modo de revisión manual.
 - **Variación acumulada:** detecta subidas o bajadas graduales que en la ventana configurada (7 días) superan el umbral.
 
-Las alertas aparecen en **Alertas de precio**, en el panel y como aviso emergente en cualquier pantalla abierta (se consulta cada 20 segundos).
+Las alertas aparecen en **Alertas de precio**, en el panel y como aviso emergente en cualquier pantalla abierta (se consulta cada 5 segundos). En **Alertas de precio**, el filtro **Mostrar** ofrece:
+
+- **Sin revisar:** alertas pendientes de marcar como revisadas.
+- **Solo alertas:** todas las alertas (variaciones sobre el umbral).
+- **Todas:** todos los registros del historial de precios, sin excluir ninguno (bot, ediciones manuales, aprobaciones, retenidos, rechazados y reemplazados), con precio anterior, nuevo, variación y alerta asociada.
 
 ### Exportar auditoría
 
-- **Auditoría de cambios de precio** (`Auditoría` o `Alertas de precio` → Exportar): cada cambio publicado con fecha, precio anterior y nuevo, variación, origen (bot, edición manual o aprobación), usuario, motivo y alerta asociada. Se puede filtrar por fechas y fuente.
-- **Bitácora completa** (`Auditoría` → Exportar esta bitácora): todas las acciones del sistema con los filtros aplicados.
+- **Auditoría de cambios de precio** (`Auditoría` o `Alertas de precio` → Exportar): todos los registros del historial de precios con fecha, precio anterior y nuevo, variación, origen (bot, edición manual o aprobación), usuario, motivo, alerta asociada, estado, tipo de cambio, fecha de aprobación e `id_historial`. Se puede filtrar por fechas y fuente.
+- **Bitácora completa** (`Auditoría` → Exportar esta bitácora): todas las acciones del sistema, incluidos cada cambio de precio o stock hecho por el bot, cada alerta y los intentos de ingreso rechazados, con los filtros aplicados (usuario, acción, desde, hasta) y el `id` de cada registro. La pantalla Auditoría agrega sola los registros nuevos cada 5 segundos.
 
 Los archivos usan `;` como separador para abrirse directamente en Excel con configuración regional de Chile.
 

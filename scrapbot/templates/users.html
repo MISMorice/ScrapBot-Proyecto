@@ -3,12 +3,12 @@
 {% block title %}Usuarios{% endblock %}
 {% block content %}
 <h1>Usuarios</h1>
-<p class="lead">Los administradores (ingresando con el acceso «Administrador») editan precios y stock y configuran fuentes, usuarios y parámetros. Los usuarios consultan el catálogo, revisan alertas y lanzan ejecuciones.</p>
+<p class="lead">El panel es solo para administradores: editan precios y stock y configuran fuentes, usuarios y parámetros. Las cuentas de analista creadas antes se conservan, pero no pueden ingresar.</p>
 <div class="table-wrap">
 <table>
   <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
   <tbody>{% for u in users %}
-    <tr><td>{{ u.username }}</td><td>{{ 'Administrador' if u.role == 'admin' else 'Usuario (analista)' }}</td>
+    <tr><td>{{ u.username }}</td><td>{{ 'Administrador' if u.role == 'admin' else 'Analista (sin acceso al panel)' }}</td>
       <td>{% if not u.active %}<span class="chip off">Inactivo</span>{% elif u.locked_until and u.locked_until > now_utc %}<span class="chip bad">Bloqueado</span>{% else %}<span class="chip ok">Activo</span>{% endif %}</td>
       <td class="actions">
         <form method="post" class="inline" action="{{ url_for('web.user_unlock', user_id=u.id) }}">{{ csrf() }}<button class="btn small secondary" type="submit">Desbloquear</button></form>
@@ -17,13 +17,10 @@
   {% endfor %}</tbody>
 </table></div>
 
-<h2>Nuevo usuario</h2>
+<h2>Nuevo administrador</h2>
 <form method="post" class="stack panel">
   {{ csrf() }}
-  <div class="grid2">
-    <div><label for="username">Usuario</label><input type="text" id="username" name="username" autocomplete="off" required>{{ err(errors, 'username') }}</div>
-    <div><label for="role">Rol</label><select id="role" name="role"><option value="analyst">Usuario (analista)</option><option value="admin">Administrador</option></select>{{ err(errors, 'role') }}</div>
-  </div>
+  <label for="username">Usuario</label><input type="text" id="username" name="username" autocomplete="off" required>{{ err(errors, 'username') }}
   <label for="password">Contraseña <span class="hint">Mínimo 10 caracteres, combinando letras y números.</span></label>
   <input type="password" id="password" name="password" autocomplete="new-password" required>{{ err(errors, 'password') }}
   <p><button class="btn" type="submit">Crear usuario</button></p>

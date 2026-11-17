@@ -32,7 +32,7 @@
     </nav>
     <div class="userbox">
       {{ g.user['username'] }}<br>
-      <span class="mode-chip {{ 'admin' if is_admin else '' }}">{{ 'Acceso administrador' if is_admin else 'Acceso usuario' }}</span>
+      <span class="mode-chip admin">Acceso administrador</span>
       <form method="post" action="{{ url_for('auth.logout') }}">{{ csrf() }}<button class="btn link" type="submit">Cerrar sesión</button></form>
     </div>
   </aside>
@@ -44,7 +44,8 @@
   </main>
 </div>
 <div class="toast-area" aria-live="polite" data-alerts-url="{{ url_for('web.alerts_summary') }}"
-     data-alerts-page="{{ url_for('web.alerts') }}" data-last-alert="{{ last_alert_id }}"></div>
+     data-alerts-page="{{ url_for('web.alerts') }}" data-last-alert="{{ last_alert_id }}" data-poll-ms="{{ poll_ms }}"></div>
 <script src="{{ url_for('static', filename='alerts.js') }}" defer></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

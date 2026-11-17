@@ -98,7 +98,8 @@ def create_app(overrides: dict | None = None) -> Flask:
             alerts = g.db.execute("SELECT COUNT(*) FROM price_alerts WHERE seen_at IS NULL").fetchone()[0]
             last_alert = g.db.execute("SELECT COALESCE(MAX(id), 0) FROM price_alerts").fetchone()[0]
         return {"pending_count": pending, "alert_count": alerts, "last_alert_id": last_alert,
-                "current_path": request.path, "is_admin": getattr(g, "is_admin", False)}
+                "current_path": request.path, "is_admin": getattr(g, "is_admin", False),
+                "poll_ms": int(app.config["ALERT_POLL_SECONDS"] * 1000)}
 
     @app.after_request
     def security_headers(resp):

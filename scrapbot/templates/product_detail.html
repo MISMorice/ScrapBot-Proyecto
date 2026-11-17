@@ -47,12 +47,12 @@
 <div class="table-wrap">
 {% if history %}
 <table>
-  <thead><tr><th>Captura</th><th>Origen</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Final</th><th class="num">Stock</th><th>Estado</th></tr></thead>
+  <thead><tr><th>Captura</th><th>Origen</th><th class="num">Anterior</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Final</th><th class="num">Stock</th><th>Estado</th></tr></thead>
   <tbody>{% for h in history %}
     <tr><td>{{ h.captured_at|dt }}</td>
       <td>{% if h.changed_by %}Edición de <b>{{ h.changed_by }}</b><div class="muted small">{{ h.note }}</div>
           {% elif h.run_id %}<a href="{{ url_for('web.run_detail', run_id=h.run_id) }}">Bot · ejecución #{{ h.run_id }}</a>{% else %}—{% endif %}</td>
-      <td class="num">{{ h.net_price|clp }}</td><td class="num">{{ h.vat_amount|clp }} <span class="muted">({{ '%g'|format(h.vat_rate) }}%)</span></td>
+      <td class="num">{{ h.previous_price|clp }}</td><td class="num">{{ h.net_price|clp }}</td><td class="num">{{ h.vat_amount|clp }} <span class="muted">({{ '%g'|format(h.vat_rate) }}%)</span></td>
       <td class="num">{{ h.final_price|clp }}</td><td class="num">{{ h.stock if h.stock is not none else '—' }}</td><td>{{ hist_chip(h.status) }}</td></tr>
   {% endfor %}</tbody>
 </table>

@@ -1,7 +1,7 @@
 """Programador de ejecuciones automáticas.
 
 Dos modos (Parámetros > Automatización):
-  * 'interval': captura cada N minutos (por defecto 15), para que las alertas de
+  * 'interval': captura cada N minutos (por defecto 5, mínimo 1), para que las alertas de
     precio aparezcan casi al instante y sin intervención humana.
   * 'times': horarios fijos HH:MM (modo original OE3: 00:00, 06:00, 12:00, 18:00).
 """
@@ -27,7 +27,7 @@ def parse_schedule(value: str) -> list[str]:
     return times
 
 
-MIN_INTERVAL, MAX_INTERVAL = 5, 1440
+MIN_INTERVAL, MAX_INTERVAL = 1, 1440
 
 
 def parse_interval(value) -> int:
@@ -45,7 +45,7 @@ def upcoming_slots(conn, tz, now: datetime, count: int = 4) -> list[datetime]:
     if get_setting(conn, "scheduler_enabled", "1") != "1":
         return []
     if get_setting(conn, "schedule_mode", "interval") == "interval":
-        minutes = parse_interval(get_setting(conn, "interval_minutes", "15"))
+        minutes = parse_interval(get_setting(conn, "interval_minutes", "5"))
         epoch_min = int(now.timestamp() // 60)
         first = epoch_min - epoch_min % minutes + minutes
         return [datetime.fromtimestamp((first + i * minutes) * 60, tz) for i in range(count)]
@@ -97,7 +97,7 @@ class IntradayScheduler(threading.Thread):
             if get_setting(conn, "scheduler_enabled", "1") != "1":
                 return []
             if get_setting(conn, "schedule_mode", "interval") == "interval":
-                minutes = parse_interval(get_setting(conn, "interval_minutes", "15"))
+                minutes = parse_interval(get_setting(conn, "interval_minutes", "5"))
                 slot = self.interval_slot(now, minutes)
             else:
                 times = parse_schedule(get_setting(conn, "schedule_times", self.config["DEFAULT_SCHEDULE"]))

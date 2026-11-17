@@ -23,7 +23,7 @@ from .util import now_str, parse_ts, to_str, utcnow
 
 bp = Blueprint("auth", __name__)
 _DUMMY_HASHES: dict[str, str] = {}
-ACCESS_MODES = {"user": "Usuario", "admin": "Administrador"}
+ADMIN_ROLE = "admin"   # único rol con acceso al panel
 
 
 def _dummy_hash() -> str:
@@ -52,11 +52,15 @@ def validate_password(password: str) -> str | None:
     return None
 
 
-def _log_attempt(username, success: bool, reason: str) -> None:
+def _log_attempt(username, success: bool, reason: str, user_id: int | None = None) -> None:
     g.db.execute(
         "INSERT INTO login_log (username, success, reason, ip, created_at) VALUES (?,?,?,?,?)",
         (username, int(success), reason, request.remote_addr, now_str()),
     )
+    if not success:
+        # Los intentos rechazados también quedan en la bitácora de auditoría,
+        # para que su exportación contenga todas las acciones del sistema.
+        audit.log(g.db, username or None, "auth.failed", "user", user_id, reason)
 
 
 def safe_next(target: str | None) -> str:
@@ -79,7 +83,7 @@ def login_required(view):
 
 
 def admin_required(view):
-    """Exige una cuenta administradora que haya ingresado por el acceso «Administrador»."""
+    """Exige una cuenta con rol administrador (defensa en profundidad: el login ya solo admite ese rol)."""
     @wraps(view)
     @login_required
     def wrapped(*args, **kwargs):
@@ -105,7 +109,6 @@ def init_auth(app) -> None:
     def load_user_and_guard():
         g.user = None
         g.is_admin = False
-        g.access_mode = None
         if request.endpoint == "static":
             return
         uid = session.get("uid")
@@ -117,16 +120,14 @@ def init_auth(app) -> None:
                 flash("Su sesión expiró por inactividad. Ingrese nuevamente.", "warning")
             else:
                 row = g.db.execute("SELECT * FROM users WHERE id=? AND active=1", (uid,)).fetchone()
-                if row is None:
+                if row is None or row["role"] != ADMIN_ROLE:
+                    # Cuenta desactivada, o sesión abierta antes de que el panel quedara
+                    # solo para administradores: se cierra.
                     session.clear()
                 else:
                     g.user = row
-                    # El modo de acceso elegido en el login limita los permisos: una cuenta
-                    # admin que entra como «Usuario» ve el panel sin poder editar.
-                    mode = session.get("mode", "admin" if row["role"] == "admin" else "user")
-                    g.access_mode = "admin" if (mode == "admin" and row["role"] == "admin") else "user"
-                    g.is_admin = g.access_mode == "admin"
-                    if request.endpoint != "web.alerts_summary":     # el sondeo de alertas no cuenta como actividad
+                    g.is_admin = True
+                    if request.endpoint not in ("web.alerts_summary", "web.audit_latest"):   # el sondeo no cuenta como actividad
                         session["last_seen"] = now
         if request.method == "POST" and app.config.get("CSRF_ENABLED", True):
             sent = request.form.get("_csrf", "")
@@ -145,10 +146,6 @@ def login():
         cfg = current_app.config
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        # Si el formulario no envía el selector (clientes antiguos), se usa el rol de la cuenta.
-        access = request.form.get("access")
-        if access is not None and access not in ACCESS_MODES:
-            access = "user"
         user = g.db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         generic = "Usuario o contraseña incorrectos"
 
@@ -156,46 +153,43 @@ def login():
             check_password_hash(_dummy_hash(), password)   # iguala tiempos de respuesta
             _log_attempt(username, False, "usuario inexistente o inactivo")
             flash(generic, "error")
-            return render_template("login.html", access=access or "user", username=username), 401
+            return render_template("login.html", username=username), 401
 
         if user["locked_until"] and parse_ts(user["locked_until"]) > utcnow():
-            _log_attempt(username, False, "cuenta bloqueada")
+            _log_attempt(username, False, "cuenta bloqueada", user["id"])
             minutes = max(1, int((parse_ts(user["locked_until"]) - utcnow()).total_seconds() // 60) + 1)
             flash(f"Cuenta bloqueada por intentos fallidos. Reintente en {minutes} min o pida a un administrador que la desbloquee.", "error")
-            return render_template("login.html", access=access or "user", username=username), 423
+            return render_template("login.html", username=username), 423
 
         if not check_password_hash(user["password_hash"], password):
             attempts = user["failed_attempts"] + 1
             if attempts >= cfg["MAX_FAILED_LOGINS"]:
                 locked = to_str(utcnow() + timedelta(minutes=cfg["LOCKOUT_MINUTES"]))
                 g.db.execute("UPDATE users SET failed_attempts=0, locked_until=? WHERE id=?", (locked, user["id"]))
-                _log_attempt(username, False, "contraseña incorrecta; cuenta bloqueada")
+                _log_attempt(username, False, "contraseña incorrecta; cuenta bloqueada", user["id"])
                 audit.log(g.db, username, "auth.lockout", "user", user["id"], f"{attempts} intentos fallidos")
                 flash("Demasiados intentos fallidos: la cuenta fue bloqueada temporalmente.", "error")
-                return render_template("login.html", access=access or "user", username=username), 423
+                return render_template("login.html", username=username), 423
             g.db.execute("UPDATE users SET failed_attempts=? WHERE id=?", (attempts, user["id"]))
-            _log_attempt(username, False, "contraseña incorrecta")
+            _log_attempt(username, False, "contraseña incorrecta", user["id"])
             flash(generic, "error")
-            return render_template("login.html", access=access or "user", username=username), 401
+            return render_template("login.html", username=username), 401
 
-        if access is None:
-            access = "admin" if user["role"] == "admin" else "user"
-        if access == "admin" and user["role"] != "admin":
-            # La contraseña era correcta: no es un intento fallido, pero la cuenta no tiene ese permiso.
+        if user["role"] != ADMIN_ROLE:
+            # La contraseña era correcta: no es un intento fallido, pero la cuenta no tiene acceso al panel.
             g.db.execute("UPDATE users SET failed_attempts=0 WHERE id=?", (user["id"],))
-            _log_attempt(username, False, "sin permiso de administrador")
-            flash("Esta cuenta no tiene permisos de administrador. Ingrese con el acceso «Usuario».", "error")
-            return render_template("login.html", access="user", username=username), 403
+            _log_attempt(username, False, "sin permiso de administrador", user["id"])
+            flash("Esta cuenta no tiene permisos de administrador.", "error")
+            return render_template("login.html", username=username), 403
 
         g.db.execute("UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?", (user["id"],))
-        _log_attempt(username, True, f"ok ({ACCESS_MODES[access].lower()})")
-        audit.log(g.db, username, "auth.login", "user", user["id"], f"acceso={access}")
+        _log_attempt(username, True, "ok (administrador)")
+        audit.log(g.db, username, "auth.login", "user", user["id"], "acceso=admin")
         session.clear()                                    # evita fijación de sesión
         session["uid"] = user["id"]
-        session["mode"] = access
         session["last_seen"] = utcnow().timestamp()
         return redirect(safe_next(request.args.get("next")))
-    return render_template("login.html", access=request.args.get("access", "user"), username="")
+    return render_template("login.html", username="")
 
 
 @bp.route("/logout", methods=["POST"])

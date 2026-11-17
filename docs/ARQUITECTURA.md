@@ -82,18 +82,18 @@ La flecha de `web.py` a `db.py` es la excepción que se explica en la sección 7
 | Módulo | Qué hace |
 | --- | --- |
 | `scrapbot/__init__.py` | Crea la aplicación (`create_app`), abre una conexión por solicitud, registra filtros de plantilla (`clp`, `dt`), cabeceras de seguridad (CSP, `X-Frame-Options`) y arranca el programador. |
-| `scrapbot/auth.py` | Login con selector **Usuario / Administrador**, bloqueo tras 5 intentos fallidos, expiración por inactividad (15 min), protección CSRF en todo `POST`, decoradores `login_required` y `admin_required`. |
+| `scrapbot/auth.py` | Login **solo para administradores**, bloqueo tras 5 intentos fallidos, expiración por inactividad (15 min), protección CSRF en todo `POST`, decoradores `login_required` y `admin_required`. |
 | `scrapbot/web.py` | Rutas del panel: fuentes, productos, edición de precio y stock, alertas, ejecuciones, auditoría, exportaciones CSV, usuarios y parámetros. También el catálogo público. |
 | `scrapbot/templates/` | Vistas HTML (Jinja2 con escape automático, lo que evita inyección de HTML). |
-| `scrapbot/static/` | Estilos y `alerts.js`, que consulta `/api/alerts/summary` cada 20 s y muestra un aviso cuando el bot genera una alerta. |
+| `scrapbot/static/` | Estilos; `alerts.js`, que consulta `/api/alerts/summary` cada 5 s (`ALERT_POLL_SECONDS`) y muestra un aviso cuando el bot genera una alerta; y `audit_live.js`, que consulta `/api/audit/latest` con el mismo intervalo y agrega arriba los registros nuevos de la pantalla Auditoría. |
 
 ### Control de acceso en esta capa
 
-El rol de la cuenta (`admin` o `analyst`) se guarda en la base de datos. En el login, la persona elige además el **tipo de acceso**:
+El panel tiene un único tipo de acceso: **Administrador**. El rol de la cuenta se guarda en la base de datos:
 
-- Una cuenta `analyst` que elige «Administrador» es rechazada con el mensaje «Esta cuenta no tiene permisos de administrador».
-- Una cuenta `admin` que elige «Usuario» entra con permisos de usuario: puede consultar, pero no editar precios ni configurar.
-- Solo `admin` + acceso «Administrador» activa `g.is_admin`, que es lo que exigen `admin_required` y las plantillas para mostrar la edición.
+- Solo una cuenta con rol `admin` puede iniciar sesión; eso activa `g.is_admin`, que exigen `admin_required` y las plantillas.
+- Una cuenta `analyst` (creada con versiones anteriores, se conserva en la base) es rechazada con «Esta cuenta no tiene permisos de administrador», sin contar como intento fallido; el rechazo queda en `login_log` y en `audit_log`. Una sesión de analista abierta antes del cambio se cierra en la siguiente solicitud.
+- `/users` y `manage.py create-user` solo crean cuentas `admin`.
 
 Así el permiso queda decidido en un único lugar (`auth.py`) y el resto de la capa solo pregunta `g.is_admin`.
 
@@ -184,7 +184,7 @@ sequenceDiagram
     T->>T: detector: variación > 15 %
     T->>D: actualiza precio + historial + price_alerts (una transacción)
     P->>D: guarda métricas de la ejecución
-    W->>W: alerts.js consulta cada 20 s
+    W->>W: alerts.js consulta cada 5 s
     W->>D: GET /api/alerts/summary
     D-->>W: 1 alerta nueva → aviso en pantalla
 ```
@@ -193,15 +193,15 @@ Si algo falla al escribir, la transacción se revierte completa: nunca queda un 
 
 ### 6.2 Edición manual de precio por un administrador
 
-1. **Presentación.** `POST /products/<id>/edit` llega a `web.py`. `admin_required` comprueba `g.is_admin` (rol admin y acceso «Administrador»); si no, responde 403. Se valida el formulario: precio legible, stock entero, motivo de al menos 5 caracteres.
+1. **Presentación.** `POST /products/<id>/edit` llega a `web.py`. `admin_required` comprueba `g.is_admin` (rol admin); si no, responde 403. Se valida el formulario: precio legible, stock entero, motivo de al menos 5 caracteres.
 2. **Negocio.** `store.edit_product` recalcula neto e IVA con la tasa vigente, decide si el producto queda fijado frente al bot y cierra cualquier revisión pendiente.
-3. **Datos.** En una sola transacción: actualiza `products`, agrega una fila en `price_history` con `changed_by` y `note`, y registra `product.edit` en `audit_log`.
+3. **Datos.** En una sola transacción: actualiza `products`, agrega una fila en `price_history` con `previous_price`, `changed_by` y `note`, y registra `product.edit` en `audit_log`.
 4. **Presentación.** Redirige al detalle del producto con un mensaje de confirmación.
 
 ### 6.3 Exportación de la auditoría de cambios de precio
 
 1. **Presentación.** `GET /export/price-changes.csv?desde=…&hasta=…` valida las fechas (hora de Chile) y las convierte a UTC.
-2. **Datos.** Una consulta con la función de ventana `LAG` obtiene, para cada cambio, el precio anterior del mismo producto, y lo une con la alerta o la aprobación asociada.
+2. **Datos.** Lee **todas** las filas de `price_history` (publicadas, aprobadas, retenidas, rechazadas y reemplazadas). Cada fila guarda su precio anterior (`previous_price`, escrito al registrar el cambio; en bases antiguas se completó una vez al migrar), y se une con la alerta o la aprobación asociada. La misma consulta (`PRICE_CHANGES_SELECT`) alimenta el filtro «Todas» de Alertas de precio, así que pantalla y archivo coinciden.
 3. **Presentación.** Arma un CSV con separador `;` y BOM (abre directo en Excel con configuración regional de Chile), neutraliza fórmulas maliciosas y registra la exportación en la bitácora.
 
 ### 6.4 Catálogo público
@@ -250,7 +250,7 @@ Que la capa de negocio se pueda probar sin levantar el panel es la evidencia pr�
 Con `python manage.py serve` corre **un proceso** con:
 
 - el servidor web (waitress si está instalado; si no, el servidor de desarrollo de Flask);
-- un **hilo** del programador que revisa el reloj cada 20 segundos;
+- un **hilo** del programador que revisa el reloj cada 10 segundos (captura cada 5 minutos por defecto, mínimo 1);
 - hilos temporales para las capturas lanzadas con «Ejecutar ahora».
 
 La tienda de demostración (`python -m demo_site.app`) es un proceso aparte que simula sitios externos. Si se despliegan varios procesos web, el programador usa una reserva atómica en la base de datos para que cada horario se dispare una sola vez.

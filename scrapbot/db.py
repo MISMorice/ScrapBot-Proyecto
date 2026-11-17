@@ -49,14 +49,30 @@ MIGRATIONS = (
     ("runs", "items_alerted", "INTEGER NOT NULL DEFAULT 0"),
     ("price_history", "changed_by", "TEXT"),
     ("price_history", "note", "TEXT"),
+    ("price_history", "previous_price", "INTEGER"),
 )
+
+# Datos que se completan una sola vez, justo cuando se agrega la columna.
+# Solo escriben la columna nueva: no modifican ni borran registros existentes.
+BACKFILLS = {
+    # Precio publicado antes de cada registro = último precio aplicado/aprobado anterior del mismo producto.
+    ("price_history", "previous_price"): (
+        "UPDATE price_history SET previous_price = ("
+        " SELECT h2.final_price FROM price_history h2"
+        " WHERE h2.product_id = price_history.product_id AND h2.id < price_history.id"
+        " AND h2.status IN ('applied', 'approved') ORDER BY h2.id DESC LIMIT 1)"
+    ),
+}
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
     for table, column, ddl in MIGRATIONS:
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            with transaction(conn):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                if (table, column) in BACKFILLS:
+                    conn.execute(BACKFILLS[(table, column)])
 
 
 def init_db(conn: sqlite3.Connection, config: dict | None = None) -> None:
@@ -71,7 +87,7 @@ def init_db(conn: sqlite3.Connection, config: dict | None = None) -> None:
         "scheduler_last_slot": "",
         # Automatización (entrega 80-100 %)
         "schedule_mode": cfg.get("DEFAULT_SCHEDULE_MODE", "interval"),   # 'interval' | 'times'
-        "interval_minutes": str(cfg.get("DEFAULT_INTERVAL_MINUTES", 15)),
+        "interval_minutes": str(cfg.get("DEFAULT_INTERVAL_MINUTES", 5)),
         "alert_mode": cfg.get("DEFAULT_ALERT_MODE", "auto"),             # 'auto' | 'review'
         "drift_window_days": str(cfg.get("DEFAULT_DRIFT_WINDOW_DAYS", 7)),
     }
@@ -79,6 +95,15 @@ def init_db(conn: sqlite3.Connection, config: dict | None = None) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
             (key, value, now_str()),
+        )
+    # El intervalo por defecto bajó de 15 a 5 minutos. Una base creada antes que nunca
+    # cambió ese valor desde Parámetros (updated_by vacío) adopta el nuevo; un valor
+    # elegido por una persona se respeta.
+    if defaults["interval_minutes"] != "15":
+        conn.execute(
+            "UPDATE settings SET value=?, updated_at=?, updated_by='sistema (migración)' "
+            "WHERE key='interval_minutes' AND value='15' AND updated_by IS NULL",
+            (defaults["interval_minutes"], now_str()),
         )
 
 

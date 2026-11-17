@@ -43,13 +43,21 @@ def find_product(conn, source_id: int, sku: str | None, ean: str | None):
 
 
 def _history(conn, product_id, run_id, net, vat, final, vat_rate, stock, status, chash, now,
-             changed_by=None, note=None) -> int:
+             changed_by=None, note=None, previous_price=None) -> int:
+    """Agrega un registro al historial. `previous_price` es el precio publicado justo antes (None = alta)."""
     cur = conn.execute(
         "INSERT INTO price_history (product_id, run_id, net_price, vat_amount, final_price, vat_rate, "
-        "stock, status, content_hash, captured_at, changed_by, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (product_id, run_id, net, vat, final, vat_rate, stock, status, chash, now, changed_by, note),
+        "stock, status, content_hash, captured_at, changed_by, note, previous_price) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (product_id, run_id, net, vat, final, vat_rate, stock, status, chash, now, changed_by, note, previous_price),
     )
     return cur.lastrowid
+
+
+def _log_bot_change(conn, action: str, product_id: int, run_id, hist_id, old_price, new_price, extra: str = "") -> None:
+    """Deja en la bitácora cada cambio que hace el bot (además del resumen `catalog.commit`)."""
+    detail = f"precio {old_price}->{new_price}; ejecución={run_id}; historial={hist_id}"
+    audit.log(conn, "sistema", action, "product", product_id, detail + (f"; {extra}" if extra else ""))
 
 
 def _close_pending(conn, pending, status: str, who: str, note: str, now: str) -> None:
@@ -128,8 +136,9 @@ def apply_products(conn: sqlite3.Connection, *, run_id: int, source_id: int,
                 (source_id, p.sku, p.ean, p.name, p.net_price, p.vat_amount, p.final_price, p.stock,
                  None if p.available is None else int(p.available), p.content_hash, now, now, now),
             )
-            _history(conn, cur.lastrowid, run_id, p.net_price, p.vat_amount, p.final_price, vat_rate,
-                     p.stock, "applied", p.content_hash, now)
+            hist_id = _history(conn, cur.lastrowid, run_id, p.net_price, p.vat_amount, p.final_price, vat_rate,
+                               p.stock, "applied", p.content_hash, now)
+            _log_bot_change(conn, "product.create", cur.lastrowid, run_id, hist_id, None, p.final_price)
             result.created += 1
             result.seen_ids.add(cur.lastrowid)
             continue
@@ -159,7 +168,9 @@ def apply_products(conn: sqlite3.Connection, *, run_id: int, source_id: int,
 
         if kind and mode == "review":
             hist_id = _history(conn, pid, run_id, p.net_price, p.vat_amount, p.final_price, vat_rate,
-                               new_stock, "held", p.content_hash, now)
+                               new_stock, "held", p.content_hash, now, previous_price=existing["final_price"])
+            _log_bot_change(conn, "price.held", pid, run_id, hist_id, existing["final_price"], p.final_price,
+                            f"variación {pct}% ({kind}) retenida para revisión")
             if pending:
                 if pending["history_id"]:
                     conn.execute("UPDATE price_history SET status='superseded' WHERE id=?", (pending["history_id"],))
@@ -203,12 +214,18 @@ def apply_products(conn: sqlite3.Connection, *, run_id: int, source_id: int,
         hist_id = None
         if price_changed or breakdown_changed or stock_changed:
             hist_id = _history(conn, pid, run_id, p.net_price, p.vat_amount, p.final_price, vat_rate, new_stock,
-                               "applied", p.content_hash, now)
+                               "applied", p.content_hash, now, previous_price=existing["final_price"])
+            action = ("price.change" if price_changed else
+                      "price.vat_recalc" if breakdown_changed else "product.stock_change")
+            _log_bot_change(conn, action, pid, run_id, hist_id, existing["final_price"], p.final_price,
+                            f"stock {existing['stock']}->{new_stock}")
         if kind:      # modo automático: ya se publicó; se deja la alerta
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO price_alerts (product_id, run_id, history_id, kind, reference_price, new_final_price, "
                 "variation_pct, threshold_pct, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (pid, run_id, hist_id, kind, ref_price, p.final_price, pct, threshold, now))
+            audit.log(conn, "sistema", "price.alert", "price_alert", cur.lastrowid,
+                      f"producto={pid} {kind} {ref_price}->{p.final_price} ({pct}%) umbral={threshold}%")
             result.alerted += 1
         result.updated += 1
     return result
@@ -260,7 +277,8 @@ def edit_product(conn: sqlite3.Connection, product_id: int, *, final_price: int,
         if pending:
             _close_pending(conn, pending, "superseded", username, "Reemplazada por una edición manual del precio", now)
         _history(conn, product_id, None, b.net, b.vat, b.final, vat_rate, stock, "applied",
-                 old["content_hash"], now, changed_by=username, note=justification)
+                 old["content_hash"], now, changed_by=username, note=justification,
+                 previous_price=old["final_price"])
         detail = (f"precio {old['final_price']}->{b.final}; stock {old['stock']}->{stock}; "
                   f"{'fijado' if keep_manual else 'sigue a la tienda'}; motivo={justification}")
         audit.log(conn, username, "product.edit", "product", product_id, detail)

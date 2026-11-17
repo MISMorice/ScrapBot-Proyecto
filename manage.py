@@ -2,7 +2,7 @@
 """Línea de comandos de ScrapBot.
 
   python manage.py init-db
-  python manage.py create-user martin --role admin
+  python manage.py create-user martin          # cuenta administradora
   python manage.py seed-demo            # fuente de ejemplo (requiere: python -m demo_site.app)
   python manage.py run --all            # una ejecución por fuente activa (útil para cron / Programador de tareas)
   python manage.py serve                # panel web + ejecuciones intradiarias
@@ -131,7 +131,7 @@ def main():
     sub.add_parser("init-db").set_defaults(fn=cmd_init_db)
     p = sub.add_parser("create-user")
     p.add_argument("username")
-    p.add_argument("--role", choices=["admin", "analyst"], default="analyst")
+    p.add_argument("--role", choices=["admin"], default="admin", help="el panel solo admite administradores")
     p.add_argument("--password", help="si se omite, se solicita por consola")
     p.set_defaults(fn=cmd_create_user)
     p = sub.add_parser("seed-demo")

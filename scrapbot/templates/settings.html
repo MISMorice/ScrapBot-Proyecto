@@ -19,8 +19,8 @@
         <option value="interval" {% if values.schedule_mode == 'interval' %}selected{% endif %}>Cada N minutos (casi en tiempo real)</option>
         <option value="times" {% if values.schedule_mode == 'times' %}selected{% endif %}>En horarios fijos</option>
       </select>{{ err(errors, 'schedule_mode') }}</div>
-    <div><label for="interval_minutes">Intervalo (minutos) <span class="hint">Entre 5 y 1440. Se usa con «Cada N minutos».</span></label>
-      <input type="number" min="5" max="1440" id="interval_minutes" name="interval_minutes" value="{{ values.interval_minutes }}">{{ err(errors, 'interval_minutes') }}</div>
+    <div><label for="interval_minutes">Intervalo (minutos) <span class="hint">Entre 1 y 1440. Se usa con «Cada N minutos».</span></label>
+      <input type="number" min="1" max="1440" id="interval_minutes" name="interval_minutes" value="{{ values.interval_minutes }}">{{ err(errors, 'interval_minutes') }}</div>
   </div>
   <label for="schedule_times">Horarios fijos <span class="hint">Formato HH:MM separados por coma (hora de Chile). Se usan con «En horarios fijos».</span></label>
   <input type="text" id="schedule_times" name="schedule_times" value="{{ values.schedule_times }}">{{ err(errors, 'schedule_times') }}

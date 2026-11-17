@@ -12,7 +12,7 @@ from flask import (Blueprint, Response, abort, current_app, flash, g, jsonify, r
                    render_template, request, url_for)
 
 from . import audit
-from .auth import admin_required, hash_password, login_required, validate_password
+from .auth import ADMIN_ROLE, admin_required, hash_password, login_required, validate_password
 from .db import get_setting, load_business_settings, set_setting, transaction
 from .engine.normalizer import InvalidRecord, parse_price
 from .engine.pipeline import RunInProgress
@@ -150,7 +150,7 @@ def dashboard():
     automation = {
         "enabled": get_setting(d, "scheduler_enabled", "1") == "1",
         "mode": get_setting(d, "schedule_mode", "interval"),
-        "interval": get_setting(d, "interval_minutes", "15"),
+        "interval": get_setting(d, "interval_minutes", "5"),
         "times": get_setting(d, "schedule_times", ""),
         "alert_mode": get_setting(d, "alert_mode", "auto"),
     }
@@ -450,13 +450,51 @@ def export_catalog():
                     headers={"Content-Disposition": "attachment; filename=catalogo_scrapbot.csv"})
 
 
+# --- Historial de cambios de precio (exportación y filtro «Todas» de Alertas) -------------
+
+# Todas las filas de price_history, sin excluir estados: cada una guarda el precio anterior
+# (previous_price), el nuevo (final_price) y la fecha (captured_at).
+PRICE_CHANGES_FROM = ("FROM price_history h JOIN products p ON p.id = h.product_id "
+                      "JOIN sources s ON s.id = p.source_id")
+PRICE_CHANGES_SELECT = (
+    "SELECT h.*, p.sku, p.ean, p.name, p.source_id, s.name source_name, "
+    "(SELECT a.kind FROM price_alerts a WHERE a.history_id = h.id ORDER BY a.id LIMIT 1) alert_kind, "
+    "d.resolved_by approved_by, d.justification approval_note, d.resolved_at approved_at "
+    f"{PRICE_CHANGES_FROM} "
+    "LEFT JOIN discrepancies d ON d.id = (SELECT MIN(id) FROM discrepancies WHERE history_id = h.id)"
+)
+HISTORY_STATUS = {"applied": "Publicado", "approved": "Aprobado y publicado", "held": "Retenido (en revisión)",
+                  "rejected": "Rechazado", "superseded": "Reemplazado"}
+
+
+def _price_change(r) -> dict:
+    """Interpreta una fila de PRICE_CHANGES_SELECT: origen, tipo de cambio, variación y responsable."""
+    prev, new = r["previous_price"], r["final_price"]
+    if r["changed_by"]:
+        origin, who, note = "Edición manual", r["changed_by"], r["note"]
+    elif r["status"] == "approved":
+        origin, who, note = "Aprobación de revisión", r["approved_by"], r["approval_note"]
+    else:
+        origin, who, note = ("Alta (primera captura)" if prev is None else "Bot (captura automática)"), "sistema", ""
+    if prev is None:
+        kind = "Alta"
+    elif prev != new:
+        kind = "Precio"
+    else:
+        kind = "Sin cambio de precio (stock o IVA)"
+    return {**dict(r), "prev": prev, "pct": round((new - prev) / prev * 100, 2) if prev else None,
+            "origin": origin, "who": who or "", "reason": note or "", "kind": kind,
+            "status_label": HISTORY_STATUS.get(r["status"], r["status"])}
+
+
 @bp.route("/export/price-changes.csv")
 @login_required
 def export_price_changes():
-    """Auditoría de cambios de precio: cada cambio publicado, hecho por el bot o por un administrador.
+    """Auditoría de cambios de precio: TODOS los registros del historial de precios.
 
-    Incluye el precio anterior, la variación, quién lo hizo, el motivo (si fue manual)
-    y si generó una alerta automática. Filtros: ?desde=&hasta= (AAAA-MM-DD) y ?source=ID.
+    Incluye cambios del bot, ediciones manuales, aprobaciones y variaciones retenidas,
+    rechazadas o reemplazadas, con precio anterior, nuevo, variación, responsable,
+    motivo y alerta asociada. Filtros: ?desde=&hasta= (AAAA-MM-DD) y ?source=ID.
     """
     since, until = _date_range()
     where, args = ["1=1"], []
@@ -470,78 +508,78 @@ def export_price_changes():
     if source.isdigit():
         where.append("p.source_id = ?")
         args.append(int(source))
-    sql = f"""
-        WITH ordered AS (
-            SELECT h.*, LAG(h.final_price) OVER (PARTITION BY h.product_id ORDER BY h.id) AS prev_price
-            FROM price_history h WHERE h.status IN ('applied', 'approved')
-        )
-        SELECT h.*, p.sku, p.ean, p.name, s.name source_name,
-               (SELECT a.kind FROM price_alerts a WHERE a.history_id = h.id LIMIT 1) alert_kind,
-               (SELECT d.resolved_by FROM discrepancies d WHERE d.history_id = h.id LIMIT 1) approved_by,
-               (SELECT d.justification FROM discrepancies d WHERE d.history_id = h.id LIMIT 1) approval_note
-        FROM ordered h JOIN products p ON p.id = h.product_id JOIN sources s ON s.id = p.source_id
-        WHERE {" AND ".join(where)} AND (h.prev_price IS NULL OR h.prev_price != h.final_price OR h.changed_by IS NOT NULL)
-        ORDER BY h.captured_at, h.id"""
     rows = []
-    for r in g.db.execute(sql, args):
-        prev = r["prev_price"]
-        pct = "" if not prev else f"{(r['final_price'] - prev) / prev * 100:.2f}".replace(".", ",")
-        if r["changed_by"]:
-            origin, who, note = "Edición manual", r["changed_by"], r["note"]
-        elif r["status"] == "approved":
-            origin, who, note = "Aprobación de revisión", r["approved_by"], r["approval_note"]
-        else:
-            origin, who, note = ("Alta (primera captura)" if prev is None else "Bot (captura automática)"), "sistema", ""
-        rows.append([_local(r["captured_at"]), _safe(r["source_name"]), _safe(r["sku"]), _safe(r["ean"]),
-                     _safe(r["name"]), "" if prev is None else prev, r["final_price"], pct, r["net_price"],
-                     r["vat_amount"], f"{r['vat_rate']:g}", "" if r["stock"] is None else r["stock"],
-                     origin, _safe(who), _safe(note), r["alert_kind"] or "", r["run_id"] or ""])
+    for r in g.db.execute(f"{PRICE_CHANGES_SELECT} WHERE {' AND '.join(where)} ORDER BY h.captured_at, h.id", args):
+        c = _price_change(r)
+        pct = "" if c["pct"] is None else f"{c['pct']:.2f}".replace(".", ",")
+        rows.append([_local(c["captured_at"]), _safe(c["source_name"]), _safe(c["sku"]), _safe(c["ean"]),
+                     _safe(c["name"]), "" if c["prev"] is None else c["prev"], c["final_price"], pct, c["net_price"],
+                     c["vat_amount"], f"{c['vat_rate']:g}", "" if c["stock"] is None else c["stock"],
+                     c["origin"], _safe(c["who"]), _safe(c["reason"]), c["alert_kind"] or "", c["run_id"] or "",
+                     c["status_label"], c["kind"], _local(c["approved_at"]) if c["status"] == "approved" else "",
+                     c["id"]])
     audit.log(g.db, g.user["username"], "price_audit.export", "price_history", None,
               f"CSV filas={len(rows)} desde={request.args.get('desde', '')} hasta={request.args.get('hasta', '')}")
     header = ["fecha_hora_chile", "fuente", "sku", "ean", "producto", "precio_anterior", "precio_nuevo",
               "variacion_pct", "precio_neto", "iva", "tasa_iva_pct", "stock", "origen", "usuario", "motivo",
-              "alerta", "ejecucion"]
+              "alerta", "ejecucion", "estado", "tipo_cambio", "aprobado_en", "id_historial"]
     return _csv_response(header, rows, "auditoria_cambios_precio.csv")
 
 
-@bp.route("/export/audit.csv")
-@login_required
-def export_audit():
-    """Bitácora completa (todas las acciones del sistema) con los mismos filtros de la pantalla Auditoría."""
+def _audit_filters():
+    """Filtros comunes de la pantalla Auditoría, su exportación y su actualización en vivo."""
     since, until = _date_range()
+    filters = {k: request.args.get(k, "").strip() for k in ("user", "action", "desde", "hasta")}
     where, args = ["1=1"], []
-    user, action = request.args.get("user", "").strip(), request.args.get("action", "").strip()
-    if user:
+    if filters["user"]:
         where.append("username = ?")
-        args.append(user)
-    if action:
+        args.append(filters["user"])
+    if filters["action"]:
         where.append("action LIKE ? ESCAPE '\\'")
-        args.append(_like(action))
+        args.append(_like(filters["action"]))
     if since:
         where.append("created_at >= ?")
         args.append(since)
     if until:
         where.append("created_at < ?")
         args.append(until)
-    rows = [[_local(r["created_at"]), _safe(r["username"]), r["action"], r["entity"] or "",
+    return " AND ".join(where), args, filters
+
+
+@bp.route("/export/audit.csv")
+@login_required
+def export_audit():
+    """Bitácora completa (todas las acciones del sistema) con los mismos filtros de la pantalla Auditoría."""
+    clause, args, _ = _audit_filters()
+    rows = [[r["id"], _local(r["created_at"]), _safe(r["username"]), r["action"], r["entity"] or "",
              r["entity_id"] if r["entity_id"] is not None else "", _safe(r["detail"])]
-            for r in g.db.execute(f"SELECT * FROM audit_log WHERE {' AND '.join(where)} ORDER BY id", args)]
+            for r in g.db.execute(f"SELECT * FROM audit_log WHERE {clause} ORDER BY id", args)]
     audit.log(g.db, g.user["username"], "audit.export", "audit_log", None, f"CSV filas={len(rows)}")
-    return _csv_response(["fecha_hora_chile", "usuario", "accion", "entidad", "id_entidad", "detalle"],
+    return _csv_response(["id", "fecha_hora_chile", "usuario", "accion", "entidad", "id_entidad", "detalle"],
                          rows, "bitacora_auditoria.csv")
 
 
 # --- Alertas automáticas -------------------------------------------------------
 
+ALERT_VIEWS = ("unseen", "alerts", "all")   # sin revisar · solo alertas · todos los cambios de precio
+
+
 @bp.route("/alerts")
 @login_required
 def alerts():
     show = request.args.get("show", "unseen")
-    where = "a.seen_at IS NULL" if show == "unseen" else "1=1"
-    rows, pg = _paginate(f"SELECT COUNT(*) FROM price_alerts a WHERE {where}",
-                         "SELECT a.*, p.name, p.sku, p.ean, p.final_price current_price, s.name source_name "
-                         "FROM price_alerts a JOIN products p ON p.id=a.product_id JOIN sources s ON s.id=p.source_id "
-                         f"WHERE {where} ORDER BY a.id DESC", [], _page())
+    if show not in ALERT_VIEWS:
+        show = "unseen"
+    if show == "all":
+        rows, pg = _paginate(f"SELECT COUNT(*) {PRICE_CHANGES_FROM}",
+                             f"{PRICE_CHANGES_SELECT} ORDER BY h.id DESC", [], _page())
+        rows = [_price_change(r) for r in rows]
+    else:
+        where = "a.seen_at IS NULL" if show == "unseen" else "1=1"
+        rows, pg = _paginate(f"SELECT COUNT(*) FROM price_alerts a WHERE {where}",
+                             "SELECT a.*, p.name, p.sku, p.ean, p.final_price current_price, s.name source_name "
+                             "FROM price_alerts a JOIN products p ON p.id=a.product_id JOIN sources s ON s.id=p.source_id "
+                             f"WHERE {where} ORDER BY a.id DESC", [], _page())
     pending_reviews = g.db.execute("SELECT COUNT(*) FROM discrepancies WHERE status='pending'").fetchone()[0]
     return render_template("alerts.html", rows=rows, pg=pg, show=show, pending_reviews=pending_reviews,
                            alert_mode=get_setting(g.db, "alert_mode", "auto"))
@@ -642,19 +680,31 @@ def run_detail(run_id):
 @bp.route("/audit")
 @login_required
 def audit_view():
-    where, args = ["1=1"], []
-    user, action = request.args.get("user", "").strip(), request.args.get("action", "").strip()
-    if user:
-        where.append("username = ?")
-        args.append(user)
-    if action:
-        where.append("action LIKE ? ESCAPE '\\'")
-        args.append(_like(action))
-    clause = " AND ".join(where)
+    clause, args, filters = _audit_filters()
     rows, pg = _paginate(f"SELECT COUNT(*) FROM audit_log WHERE {clause}",
                          f"SELECT * FROM audit_log WHERE {clause} ORDER BY id DESC", args, _page())
     sources = g.db.execute("SELECT id, name FROM sources ORDER BY name").fetchall()
-    return render_template("audit.html", rows=rows, pg=pg, user=user, action=action, sources=sources)
+    last_id = g.db.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[0]
+    return render_template("audit.html", rows=rows, pg=pg, filters=filters, sources=sources, last_id=last_id)
+
+
+@bp.route("/api/audit/latest")
+@login_required
+def audit_latest():
+    """Registros de auditoría nuevos (id > after) con los filtros de la pantalla; lo consulta static/audit_live.js."""
+    clause, args, _ = _audit_filters()
+    try:
+        after = int(request.args.get("after", "0"))
+    except ValueError:
+        after = 0
+    dt = current_app.jinja_env.filters["dt"]
+    rows = g.db.execute(f"SELECT * FROM audit_log WHERE {clause} AND id > ? ORDER BY id DESC LIMIT ?",
+                        (*args, after, PER_PAGE)).fetchall()
+    last_id = g.db.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[0]
+    return jsonify({"last_id": last_id, "new": [
+        {"id": r["id"], "created": dt(r["created_at"]), "username": r["username"] or "—", "action": r["action"],
+         "entity": (r["entity"] or "") + (f" #{r['entity_id']}" if r["entity_id"] is not None else ""),
+         "detail": r["detail"] or ""} for r in rows]})
 
 
 @bp.route("/access-log")
@@ -695,12 +745,10 @@ def users():
     errors = {}
     if request.method == "POST":
         username = request.form.get("username", "").strip()
-        role = request.form.get("role", "analyst")
+        role = ADMIN_ROLE                     # el panel solo admite cuentas administradoras
         password = request.form.get("password", "")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{3,32}", username):
             errors["username"] = "Use 3 a 32 caracteres: letras, números, punto, guion o guion bajo"
-        if role not in ("admin", "analyst"):
-            errors["role"] = "Rol inválido"
         pw_error = validate_password(password)
         if pw_error:
             errors["password"] = pw_error

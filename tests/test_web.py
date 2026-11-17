@@ -103,13 +103,17 @@ class AuthTests(WebTestCase):
         self.assertNotIn(PASSWORD, stored)
         self.assertTrue(stored.startswith("pbkdf2:"))
 
-    def test_analista_no_accede_a_administracion(self):
-        client = self.login("ana", role="analyst")
-        for url in ("/settings", "/users", "/access-log", "/sources/new"):
+    def test_analista_no_ingresa_al_panel(self):
+        """El panel es solo para administradores: una cuenta analista existente no puede ingresar."""
+        self.make_user("ana", role="analyst")
+        client = self.app.test_client()
+        client.get("/login")
+        res = self.post(client, "/login", {"username": "ana", "password": PASSWORD})
+        self.assertEqual(res.status_code, 403)
+        for url in ("/", "/settings", "/discrepancies"):
             with self.subTest(url=url):
-                self.assertEqual(client.get(url).status_code, 403)
-        self.assertEqual(self.post(client, "/sources/new", {"name": "x"}).status_code, 403)
-        self.assertEqual(client.get("/discrepancies").status_code, 200)
+                self.assertEqual(client.get(url).status_code, 302)          # sigue sin sesión
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM users WHERE username='ana'"), 1)   # la cuenta se conserva
 
     def test_cabeceras_de_seguridad(self):
         res = self.login().get("/")
@@ -214,7 +218,7 @@ class DiscrepancyWebTests(WebTestCase):
         self.did = self.scalar("SELECT id FROM discrepancies")
 
     def test_flujo_de_revision_con_justificacion_obligatoria(self):
-        client = self.login("ana", role="analyst")
+        client = self.login("ana")
         page = client.get("/discrepancies").get_data(as_text=True)
         self.assertIn("+200.0 %", page)
         res = self.post(client, f"/discrepancies/{self.did}/resolve", {"decision": "approve", "justification": ""}, follow_redirects=True)
@@ -255,11 +259,15 @@ class AdminTests(WebTestCase):
 
     def test_crear_usuario_valida_contrasena(self):
         client = self.login()
-        res = self.post(client, "/users", {"username": "nuevo", "role": "analyst", "password": "corta1"})
+        res = self.post(client, "/users", {"username": "nuevo", "password": "corta1"})
         self.assertIn("al menos 10 caracteres", res.get_data(as_text=True))
+        # Aunque un formulario antiguo envíe role=analyst, solo se crean administradores.
         self.post(client, "/users", {"username": "nuevo", "role": "analyst", "password": "UnaClaveLarga99"})
-        self.assertEqual(self.scalar("SELECT role FROM users WHERE username='nuevo'"), "analyst")
-        self.assertEqual(self.login("nuevo", "UnaClaveLarga99", "analyst").get("/").status_code, 200)
+        self.assertEqual(self.scalar("SELECT role FROM users WHERE username='nuevo'"), "admin")
+        self.assertEqual(self.login("nuevo", "UnaClaveLarga99").get("/").status_code, 200)
+        page = client.get("/users").get_data(as_text=True)
+        self.assertNotIn('name="role"', page)
+        self.assertNotIn("Usuario (analista)", page)
 
     def test_registro_de_accesos_solo_admin(self):
         self.assertEqual(self.login().get("/access-log").status_code, 200)

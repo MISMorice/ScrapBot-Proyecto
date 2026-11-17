@@ -51,6 +51,8 @@ class Config:
     DEFAULT_VAT_RATE = 19                      # IVA Chile (%)
     DEFAULT_VARIATION_THRESHOLD = 15           # % (R3)
     DEFAULT_SCHEDULE = "00:00,06:00,12:00,18:00"  # 4 ejecuciones intradiarias (OE3)
+    DEFAULT_INTERVAL_MINUTES = 5               # captura automática cada N minutos (1 a 1440)
     SCHEDULER_ENABLED = _env_bool("SCRAPBOT_SCHEDULER", True)
-    SCHEDULER_TICK_SECONDS = 20
+    SCHEDULER_TICK_SECONDS = 10                # cada cuánto el programador revisa el reloj
     SCHEDULER_GRACE_MINUTES = 30
+    ALERT_POLL_SECONDS = 5                     # cada cuánto el navegador consulta alertas y auditoría nuevas

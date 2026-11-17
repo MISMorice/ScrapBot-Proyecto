@@ -3,17 +3,19 @@
 {% block title %}Auditoría{% endblock %}
 {% block content %}
 <h1>Auditoría</h1>
-<p class="lead">Traza unificada: ejecuciones, cambios de configuración, decisiones sobre precios y accesos.</p>
+<p class="lead">Traza unificada: ejecuciones, cambios de precio y de stock, alertas, configuración, decisiones sobre precios y accesos (incluidos los intentos rechazados).</p>
 <form class="filters" method="get">
-  <div><label for="user">Usuario</label><input type="text" id="user" name="user" value="{{ user }}"></div>
-  <div><label for="action">Acción contiene</label><input type="text" id="action" name="action" value="{{ action }}" placeholder="product.edit, alert, run…"></div>
+  <div><label for="user">Usuario</label><input type="text" id="user" name="user" value="{{ filters.user }}"></div>
+  <div><label for="action">Acción contiene</label><input type="text" id="action" name="action" value="{{ filters.action }}" placeholder="product.edit, price, auth…"></div>
+  <div><label for="a-desde">Desde</label><input type="date" id="a-desde" name="desde" value="{{ filters.desde }}"></div>
+  <div><label for="a-hasta">Hasta</label><input type="date" id="a-hasta" name="hasta" value="{{ filters.hasta }}"></div>
   <button class="btn" type="submit">Filtrar</button>
-  <a class="btn secondary" href="{{ url_for('web.export_audit', user=user, action=action) }}">Exportar esta bitácora (CSV)</a>
+  <a class="btn secondary" href="{{ url_for('web.export_audit', **filters) }}">Exportar esta bitácora (CSV)</a>
 </form>
 
 <section class="panel" aria-labelledby="export-title">
   <h2 id="export-title">Exportar auditoría de cambios de precio</h2>
-  <p class="muted">Cada cambio de precio publicado, con precio anterior, variación, origen (bot, edición manual o aprobación), usuario, motivo y alerta asociada. El archivo abre directamente en Excel.</p>
+  <p class="muted">Todos los registros del historial de precios: publicados por el bot, ediciones manuales, aprobaciones y variaciones retenidas, rechazadas o reemplazadas, con precio anterior, nuevo, variación, origen, usuario, motivo y alerta asociada. El archivo abre directamente en Excel.</p>
   <form class="filters" method="get" action="{{ url_for('web.export_price_changes') }}">
     <div><label for="desde">Desde</label><input type="date" id="desde" name="desde"></div>
     <div><label for="hasta">Hasta</label><input type="date" id="hasta" name="hasta"></div>
@@ -22,17 +24,21 @@
     <button class="btn" type="submit">Descargar CSV</button>
   </form>
 </section>
-<h2>Registros</h2>
+<h2>Registros <span class="muted small">({{ pg.total }})</span></h2>
+{% set live = pg.page == 1 %}
+{% if live %}<p class="muted small">Esta página se actualiza sola: los registros nuevos aparecen arriba en pocos segundos.</p>{% endif %}
 <div class="table-wrap">
-{% if rows %}
 <table>
   <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Entidad</th><th>Detalle</th></tr></thead>
-  <tbody>{% for a in rows %}
+  <tbody {% if live %}data-audit-live="{{ url_for('web.audit_latest', **filters) }}" data-last-id="{{ last_id }}" data-poll-ms="{{ poll_ms }}"{% endif %}>
+  {% for a in rows %}
     <tr><td>{{ a.created_at|dt }}</td><td>{{ a.username or '—' }}</td><td class="mono">{{ a.action }}</td>
-      <td>{{ a.entity or '' }}{% if a.entity_id %} #{{ a.entity_id }}{% endif %}</td><td>{{ a.detail or '' }}</td></tr>
+      <td>{{ a.entity or '' }}{% if a.entity_id is not none %} #{{ a.entity_id }}{% endif %}</td><td>{{ a.detail or '' }}</td></tr>
+  {% else %}
+    <tr data-empty><td colspan="5"><div class="empty">No hay registros con esos filtros.</div></td></tr>
   {% endfor %}</tbody>
 </table>
-{% else %}<div class="empty">No hay registros con esos filtros.</div>{% endif %}
 </div>
 {{ pager(pg) }}
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='audit_live.js') }}" defer></script>{% endblock %}

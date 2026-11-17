@@ -120,7 +120,8 @@ CREATE TABLE IF NOT EXISTS price_history (
     content_hash TEXT,
     captured_at  TEXT NOT NULL,
     changed_by   TEXT,          -- NULL = capturado por el bot; si no, administrador que editó
-    note         TEXT           -- motivo de la edición manual
+    note         TEXT,          -- motivo de la edición manual
+    previous_price INTEGER      -- precio final publicado justo antes de este registro (NULL = alta)
 );
 CREATE INDEX IF NOT EXISTS ix_history_product ON price_history(product_id, captured_at);
 

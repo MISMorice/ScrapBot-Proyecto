@@ -105,7 +105,7 @@ def validate_settings_form(form) -> tuple[dict, dict]:
         errors["schedule_mode"] = "Modo de programación inválido"
     data["schedule_mode"] = mode
     try:
-        data["interval_minutes"] = str(parse_interval(form.get("interval_minutes", "15")))
+        data["interval_minutes"] = str(parse_interval(form.get("interval_minutes", "5")))
     except ValueError as exc:
         errors["interval_minutes"] = str(exc)
     alert_mode = form.get("alert_mode", "auto")

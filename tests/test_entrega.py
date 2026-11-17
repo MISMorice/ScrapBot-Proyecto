@@ -1,10 +1,11 @@
 """Pruebas de la entrega 80-100 % (las correcciones del 50 % están en test_correcciones.py).
 
 Funcionalidades
-  * Login con selector Usuario / Administrador
-  * Edición de precio y stock (solo acceso administrador)
+  * Login solo para administradores
+  * Edición de precio y stock (solo administradores)
   * Automatización: captura cada N minutos y alertas instantáneas sin intervención
-  * Exportación de la auditoría de cambios de precio y de la bitácora
+  * Historial de precios con valor anterior y filtro «Todas» de alertas
+  * Exportación de la auditoría de cambios de precio y de la bitácora (completas y en vivo)
 """
 import csv
 import io
@@ -15,8 +16,8 @@ from datetime import datetime
 from scrapbot.db import connect, init_db, set_setting, transaction
 from scrapbot.engine.normalizer import normalize_record
 from scrapbot.engine.scheduler import IntradayScheduler
-from scrapbot.engine.store import apply_products
-from scrapbot.util import now_str
+from scrapbot.engine.store import apply_products, edit_product, resolve_discrepancy
+from scrapbot.util import now_str, utcnow
 
 from .helpers import AppTestCase, FakeSite, add_source, catalog_page, ean13, fmt_clp, product_card
 from .test_web import PASSWORD, WebTestCase
@@ -109,38 +110,63 @@ class PipelineAlertTests(AppTestCase):
         self.assertEqual(self.scalar("SELECT final_price FROM products WHERE sku='A-1'"), 15000)
 
 
-# --- Login con selector ------------------------------------------------------------
+# --- Login solo administrador ----------------------------------------------------------
 
 class AccessModeTests(WebTestCase):
-    def login_as(self, username, access, role, expected=302):
+    def login_as(self, username, role, expected=302, extra=None):
         if not self.q("SELECT 1 FROM users WHERE username=?", username):
             self.make_user(username, role)
         client = self.app.test_client()
         client.get("/login")
-        res = self.post(client, "/login", {"username": username, "password": PASSWORD, "access": access})
+        res = self.post(client, "/login", {"username": username, "password": PASSWORD, **(extra or {})})
         self.assertEqual(res.status_code, expected, res.data[:300])
         return client, res
 
-    def test_pantalla_de_login_tiene_ambos_accesos(self):
+    def test_pantalla_de_login_sin_opcion_usuario(self):
         page = self.app.test_client().get("/login").get_data(as_text=True)
-        self.assertIn('value="user"', page)
-        self.assertIn('value="admin"', page)
+        self.assertNotIn('name="access"', page)
+        self.assertNotIn('value="user"', page)
+        self.assertIn("Acceso de administrador", page)
 
-    def test_usuario_sin_rol_admin_no_entra_por_el_acceso_administrador(self):
-        _, res = self.login_as("ana", "admin", "analyst", expected=403)
+    def test_cuenta_sin_rol_admin_no_puede_ingresar(self):
+        _, res = self.login_as("ana", "analyst", expected=403)
         self.assertIn("no tiene permisos de administrador", res.get_data(as_text=True))
         self.assertEqual(self.scalar("SELECT failed_attempts FROM users WHERE username='ana'"), 0)
         self.assertEqual(self.scalar("SELECT reason FROM login_log ORDER BY id DESC LIMIT 1"), "sin permiso de administrador")
+        self.assertEqual(self.scalar("SELECT detail FROM audit_log WHERE action='auth.failed' ORDER BY id DESC LIMIT 1"),
+                         "sin permiso de administrador")
 
-    def test_admin_que_entra_como_usuario_no_puede_editar(self):
-        client, _ = self.login_as("jefa", "user", "admin")
-        self.assertEqual(client.get("/settings").status_code, 403)
-        self.assertNotIn("Parámetros", client.get("/").get_data(as_text=True))
-
-    def test_admin_por_acceso_administrador_ve_la_administracion(self):
-        client, _ = self.login_as("jefa", "admin", "admin")
+    def test_admin_ingresa_y_ve_la_administracion(self):
+        client, _ = self.login_as("jefa", "admin")
         self.assertEqual(client.get("/settings").status_code, 200)
-        self.assertIn("Acceso administrador", client.get("/").get_data(as_text=True))
+        page = client.get("/").get_data(as_text=True)
+        self.assertIn("Acceso administrador", page)
+        self.assertNotIn("Acceso usuario", page)
+        self.assertEqual(self.scalar("SELECT reason FROM login_log ORDER BY id DESC LIMIT 1"), "ok (administrador)")
+
+    def test_campo_access_de_formularios_antiguos_se_ignora(self):
+        client, _ = self.login_as("jefa", "admin", extra={"access": "user"})
+        self.assertEqual(client.get("/settings").status_code, 200)        # sigue con permisos completos
+
+    def test_sesion_abierta_de_un_analista_se_cierra(self):
+        self.make_user("ana", "analyst")
+        uid = self.scalar("SELECT id FROM users WHERE username='ana'")
+        client = self.app.test_client()
+        with client.session_transaction() as s:                        # sesión creada con la versión anterior
+            s["uid"], s["mode"], s["last_seen"] = uid, "user", utcnow().timestamp()
+        res = client.get("/")
+        self.assertEqual(res.status_code, 302)
+        self.assertIn("/login", res.headers["Location"])
+
+    def test_intentos_fallidos_quedan_en_la_auditoria(self):
+        self.make_user("jefa", "admin")
+        client = self.app.test_client()
+        client.get("/login")
+        self.post(client, "/login", {"username": "jefa", "password": "mala"})
+        self.post(client, "/login", {"username": "nadie", "password": "mala"})
+        rows = self.q("SELECT username, detail FROM audit_log WHERE action='auth.failed' ORDER BY id")
+        self.assertEqual([tuple(r) for r in rows], [("jefa", "contraseña incorrecta"),
+                                                     ("nadie", "usuario inexistente o inactivo")])
 
 
 # --- Edición de precio y stock --------------------------------------------------------
@@ -171,10 +197,10 @@ class ProductEditTests(WebTestCase):
         self.assertEqual((h["changed_by"], h["note"], h["run_id"]), ("admin", "Precio de lista nuevo", None))
         self.assertIn("11900->12990", self.scalar("SELECT detail FROM audit_log WHERE action='product.edit'"))
 
-    def test_usuario_no_ve_ni_puede_usar_la_edicion(self):
-        client = self.login("ana", role="analyst")
-        self.assertNotIn("Editar precio y stock", client.get(f"/products/{self.pid}").get_data(as_text=True))
-        self.assertEqual(self.edit(client).status_code, 403)
+    def test_sin_sesion_no_se_puede_editar(self):
+        client = self.app.test_client()
+        res = client.post(f"/products/{self.pid}/edit", data={"final_price": "1", "justification": "xxxxxx"})
+        self.assertIn(res.status_code, (302, 400))                     # login o CSRF: nunca se aplica
         self.assertEqual(self.scalar("SELECT final_price FROM products"), 11900)
 
     def test_validaciones(self):
@@ -245,7 +271,115 @@ class ExportTests(ProductEditTests):
         client = self.login()
         self.edit(client)
         rows = self.rows(client, "/export/audit.csv?action=product")
-        self.assertEqual([r["accion"] for r in rows], ["product.edit"])
+        # El alta hecha por el bot en setUp también queda registrada, no solo la edición manual.
+        self.assertEqual([r["accion"] for r in rows], ["product.create", "product.edit"])
+
+    def test_exportacion_de_precios_coincide_con_el_historial(self):
+        """Todos los registros, de todos los estados y tipos, sin omitir ninguno."""
+        client = self.login()
+
+        def capture(product, mode="auto", vat=19):
+            with transaction(self.conn):
+                apply_products(self.conn, run_id=self.run_id, source_id=self.sid, products=[product],
+                               threshold=15, vat_rate=vat, mode=mode)
+
+        capture(prod(12000))
+        capture(prod(12000))                                   # sin cambios: no agrega registro
+        capture(prod(12000, vat=21), vat=21)                   # solo cambia el desglose de IVA
+        self.edit(client, keep_manual="")                      # edición manual sin fijar el precio
+        capture(prod(30000), mode="review")                    # retenida...
+        capture(prod(31000), mode="review")                    # ...y reemplazada por otra retenida
+        rows = self.rows(client, "/export/price-changes.csv")
+        stored = self.q("SELECT id, status, previous_price, final_price FROM price_history ORDER BY id")
+        self.assertEqual(sorted(int(r["id_historial"]) for r in rows), [h["id"] for h in stored])
+        by_id = {int(r["id_historial"]): r for r in rows}
+        for h in stored:
+            r = by_id[h["id"]]
+            self.assertEqual(r["precio_nuevo"], str(h["final_price"]))
+            self.assertEqual(r["precio_anterior"], "" if h["previous_price"] is None else str(h["previous_price"]))
+        estados = {r["estado"] for r in rows}
+        self.assertTrue({"Publicado", "Reemplazado", "Retenido (en revisión)"} <= estados, estados)
+        self.assertIn("Sin cambio de precio (stock o IVA)", {r["tipo_cambio"] for r in rows})
+
+    def test_bitacora_exportada_coincide_con_la_base(self):
+        client = self.login()
+        self.edit(client)
+        expected = [r["id"] for r in self.q("SELECT id FROM audit_log ORDER BY id")]
+        rows = self.rows(client, "/export/audit.csv")
+        self.assertEqual([int(r["id"]) for r in rows], expected)
+        self.assertEqual(self.rows(client, "/export/audit.csv?desde=2000-01-01&hasta=2000-01-02"), [])
+
+    def test_pantalla_de_auditoria_filtra_por_fecha_y_se_actualiza_en_vivo(self):
+        client = self.login()
+        page = client.get("/audit?desde=2000-01-01&hasta=2000-01-02").get_data(as_text=True)
+        self.assertIn("No hay registros con esos filtros", page)
+        self.assertIn("desde=2000-01-01", page)                         # el enlace de exportación lleva los filtros
+        last = self.scalar("SELECT MAX(id) FROM audit_log")
+        self.assertIn(f'data-last-id="{last}"', client.get("/audit").get_data(as_text=True))
+        self.assertEqual(client.get(f"/api/audit/latest?after={last}").get_json()["new"], [])
+        self.edit(client)
+        data = client.get(f"/api/audit/latest?after={last}&action=product.edit").get_json()
+        self.assertEqual([r["action"] for r in data["new"]], ["product.edit"])
+        self.assertEqual(data["last_id"], self.scalar("SELECT MAX(id) FROM audit_log"))
+
+
+# --- Historial de precios y filtro «Todas» -------------------------------------------
+
+class PriceHistoryTests(StoreBase):
+    def history(self):
+        return [tuple(r) for r in self.q("SELECT status, previous_price, final_price FROM price_history ORDER BY id")]
+
+    def test_cada_modificacion_registra_anterior_nuevo_y_fecha(self):
+        for price in (10000, 10500, 20000):                            # alta, cambio menor, cambio brusco
+            self.apply(prod(price))
+        edit_product(self.conn, self.product()["id"], final_price=15000, stock=None, keep_manual=False,
+                     username="jefa", justification="Corrección manual", vat_rate=19)
+        self.assertEqual(self.history(), [("applied", None, 10000), ("applied", 10000, 10500),
+                                          ("applied", 10500, 20000), ("applied", 20000, 15000)])
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM price_history WHERE captured_at IS NULL"), 0)
+        actions = [r["action"] for r in self.q("SELECT action FROM audit_log ORDER BY id")]
+        self.assertEqual(actions, ["product.create", "price.change", "price.change", "price.alert", "product.edit"])
+
+    def test_varias_modificaciones_en_revision_no_pierden_registros(self):
+        self.apply(prod(10000), mode="review")
+        self.apply(prod(20000), mode="review")
+        self.apply(prod(25000), mode="review")                           # reemplaza a la retenida anterior
+        self.assertEqual(self.history(), [("applied", None, 10000), ("superseded", 10000, 20000),
+                                          ("held", 10000, 25000)])
+        did = self.scalar("SELECT id FROM discrepancies WHERE status='pending'")
+        resolve_discrepancy(self.conn, did, approve=True, username="jefa", justification="Confirmado con proveedor")
+        self.assertEqual(self.history()[-1], ("approved", 10000, 25000))
+        self.assertEqual(self.product()["final_price"], 25000)
+
+
+class AlertFilterTests(WebTestCase):
+    def setUp(self):
+        super().setUp()
+        sid = add_source(self.conn, "http://x/a")
+        run_id = self.conn.execute("INSERT INTO runs (source_id, trigger, started_at, status) "
+                                   "VALUES (?, 'cli', ?, 'running')", (sid, now_str())).lastrowid
+        with transaction(self.conn):
+            for price, mode in ((10000, "auto"), (10500, "auto"), (20000, "auto"), (30000, "review")):
+                apply_products(self.conn, run_id=run_id, source_id=sid, products=[prod(price)],
+                               threshold=15, vat_rate=19, mode=mode)
+
+    def test_todas_muestra_todos_los_cambios_de_precio(self):
+        client = self.login()
+        total = self.scalar("SELECT COUNT(*) FROM price_history")
+        self.assertEqual(total, 4)
+        page = client.get("/alerts?show=all").get_data(as_text=True)
+        self.assertIn(f"historial de precios ({total})", page)
+        for text in ("$10.500", "Retenido", "Alta (primera captura)", "Cambio brusco"):
+            self.assertIn(text, page)
+
+    def test_solo_alertas_y_sin_revisar(self):
+        client = self.login()
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM price_alerts"), 1)
+        for show in ("alerts", "unseen", "desconocido"):
+            with self.subTest(show=show):
+                page = client.get(f"/alerts?show={show}").get_data(as_text=True)
+                self.assertIn("Cambio brusco", page)
+                self.assertNotIn("historial de precios (", page)
 
 
 # --- Automatización ------------------------------------------------------------------
@@ -275,7 +409,7 @@ class AutomationTests(WebTestCase):
             for price in (10000, 20000):
                 apply_products(self.conn, run_id=run_id, source_id=sid, products=[prod(price)],
                                threshold=15, vat_rate=19, mode="auto")
-        client = self.login("ana", role="analyst")
+        client = self.login("ana")
         data = client.get("/api/alerts/summary?after=0").get_json()
         self.assertEqual((data["unseen"], len(data["new"]), data["new"][0]["price"]), (1, 1, "$20.000"))
         self.assertEqual(client.get(f"/api/alerts/summary?after={data['last_id']}").get_json()["new"], [])
@@ -287,11 +421,24 @@ class AutomationTests(WebTestCase):
     def test_parametros_de_automatizacion(self):
         client = self.login()
         base = {"vat_rate": "19", "variation_threshold": "15", "schedule_times": "08:00", "scheduler_enabled": "on",
-                "schedule_mode": "interval", "interval_minutes": "3", "alert_mode": "auto", "drift_window_days": "7"}
-        self.assertIn("entre 5 y 1440", self.post(client, "/settings", base).get_data(as_text=True))
-        self.post(client, "/settings", {**base, "interval_minutes": "10", "alert_mode": "review"})
-        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='interval_minutes'"), "10")
+                "schedule_mode": "interval", "interval_minutes": "0", "alert_mode": "auto", "drift_window_days": "7"}
+        self.assertIn("entre 1 y 1440", self.post(client, "/settings", base).get_data(as_text=True))
+        self.post(client, "/settings", {**base, "interval_minutes": "1", "alert_mode": "review"})
+        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='interval_minutes'"), "1")
         self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='alert_mode'"), "review")
+
+    def test_intervalos_de_actualizacion_reducidos(self):
+        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='interval_minutes'"), "5")
+        self.assertEqual(self.app.config["SCHEDULER_TICK_SECONDS"], 10)
+        self.assertIn('data-poll-ms="5000"', self.login().get("/").get_data(as_text=True))
+
+    def test_base_existente_con_intervalo_por_defecto_adopta_5_minutos(self):
+        self.conn.execute("UPDATE settings SET value='15', updated_by=NULL WHERE key='interval_minutes'")
+        init_db(self.conn, self.app.config)
+        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='interval_minutes'"), "5")
+        self.conn.execute("UPDATE settings SET value='15', updated_by='jefa' WHERE key='interval_minutes'")
+        init_db(self.conn, self.app.config)                               # elegido por una persona: se respeta
+        self.assertEqual(self.scalar("SELECT value FROM settings WHERE key='interval_minutes'"), "15")
 
 
 # --- Migración de bases existentes ----------------------------------------------------------
@@ -312,4 +459,22 @@ class MigrationTests(AppTestCase):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(products)")}
         self.assertTrue({"manual_override", "missing_since"} <= cols)
         self.assertEqual(conn.execute("SELECT name, manual_override FROM products").fetchone()[:], ("Viejo", 0))
+        conn.close()
+
+    def test_historial_existente_recibe_el_precio_anterior(self):
+        path = self.db_path + ".hist"
+        old = sqlite3.connect(path)
+        old.executescript("""
+            CREATE TABLE price_history (id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL, run_id INTEGER,
+              net_price INTEGER NOT NULL, vat_amount INTEGER NOT NULL, final_price INTEGER NOT NULL, vat_rate REAL NOT NULL,
+              stock INTEGER, status TEXT NOT NULL, content_hash TEXT, captured_at TEXT NOT NULL);
+            INSERT INTO price_history VALUES (1, 1, NULL, 1, 1, 1000, 19, NULL, 'applied', NULL, '2026-01-01 00:00:00');
+            INSERT INTO price_history VALUES (2, 1, NULL, 1, 1, 2000, 19, NULL, 'held', NULL, '2026-01-02 00:00:00');
+            INSERT INTO price_history VALUES (3, 1, NULL, 1, 1, 1100, 19, NULL, 'applied', NULL, '2026-01-03 00:00:00');
+            INSERT INTO price_history VALUES (4, 2, NULL, 1, 1, 500, 19, NULL, 'applied', NULL, '2026-01-03 00:00:00');""")
+        old.close()
+        conn = connect(path)
+        init_db(conn, {})
+        rows = [tuple(r) for r in conn.execute("SELECT id, final_price, previous_price FROM price_history ORDER BY id")]
+        self.assertEqual(rows, [(1, 1000, None), (2, 2000, 1000), (3, 1100, 1000), (4, 500, None)])
         conn.close()

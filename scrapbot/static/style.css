@@ -175,17 +175,7 @@ meter { width: 220px; height: 10px; }
 .between { justify-content: space-between; }
 fieldset.bare { border: 0; padding: 0; margin: 0; min-width: 0; }
 
-/* --- Login con selector de acceso ---------------------------------------- */
-.access-tabs { border: 0; padding: 0; margin: 16px 0 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-.access-tabs legend { font-weight: 600; margin-bottom: 6px; padding: 0; }
-.access-tabs input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-form.stack .access-tabs label { margin: 0; text-align: center; padding: 8px 10px; border: 1px solid #b9c2cc; cursor: pointer; font-weight: 600; color: var(--ink-soft); background: #f8f9fb; }
-.access-tabs label[for="access-user"] { border-radius: 6px 0 0 6px; }
-.access-tabs label[for="access-admin"] { border-radius: 0 6px 6px 0; border-left: 0; }
-.access-tabs input:checked + label { background: var(--accent); border-color: var(--accent); color: #fff; }
-.access-tabs input:focus-visible + label { outline: 3px solid #5ab3a3; outline-offset: 2px; }
-.access-note { grid-column: 1 / -1; margin: 8px 0 0; font-size: .86rem; color: var(--ink-soft); display: none; }
-#access-user:checked ~ .access-note.user, #access-admin:checked ~ .access-note.admin { display: block; }
+/* --- Usuario conectado ------------------------------------------------- */
 .small { font-size: .86rem; }
 .mode-chip { display: inline-block; margin-top: 4px; padding: 0 8px; border-radius: 10px; font-size: .74rem; font-weight: 700; background: #2b3d50; color: #fff; }
 .mode-chip.admin { background: #e0a21b; color: #2b1d00; }
@@ -205,3 +195,4 @@ form.stack .access-tabs label { margin: 0; text-align: center; padding: 8px 10px
 .alert-row.unseen td:first-child { box-shadow: inset 3px 0 0 #e0a21b; }
 .pct-up { color: var(--bad); font-weight: 700; }
 .pct-down { color: var(--ok); font-weight: 700; }
+.live-new td { background: #fff7e0; }
